@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screaming Camera</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">📢</span>
+    <div><div class="title">SCREAMING CAMERA</div><div class="sub" id="uptime">—</div></div>
+  </div>
+  <nav>
+    <button class="tab active" data-tab="live">Live</button>
+    <button class="tab" data-tab="events">Events</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+  <div class="status">
+    <span class="chip" id="chip-model" title="Vision model">model</span>
+    <span class="chip" id="chip-eufy" title="Eufy bridge">eufy</span>
+    <span class="chip" id="chip-tts" title="Text to speech">tts</span>
+    <button id="arm" class="arm">DISARMED</button>
+  </div>
+</header>
+
+<main>
+  <!-- LIVE -->
+  <section id="tab-live" class="tab-panel active">
+    <div class="banner" id="banner" hidden></div>
+    <div class="grid" id="cameras"></div>
+    <h2>Latest verdict</h2>
+    <div id="latest" class="verdict empty">Waiting for the first event…</div>
+  </section>
+
+  <!-- EVENTS -->
+  <section id="tab-events" class="tab-panel">
+    <div class="toolbar">
+      <label><input type="checkbox" id="spoken-only"> spoken only</label>
+      <select id="events-camera"><option value="">all cameras</option></select>
+      <span class="spacer"></span>
+      <span id="stats" class="muted"></span>
+      <button id="refresh-events">Refresh</button>
+    </div>
+    <div id="events" class="events"></div>
+    <button id="more-events" class="ghost">Load more</button>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-settings" class="tab-panel">
+    <div class="settings-bar">
+      <span id="dirty" class="muted">No unsaved changes</span>
+      <span class="spacer"></span>
+      <button id="reload-config" class="ghost">Discard</button>
+      <button id="save-config" class="primary">Save &amp; apply</button>
+    </div>
+
+    <details open><summary>Personality &amp; prompt</summary>
+      <div class="form">
+        <label>Persona<textarea data-path="prompt.persona" rows="3"></textarea></label>
+        <label>Watch for (suspicious)<textarea data-path="prompt.watch_for" rows="3"></textarea></label>
+        <label>Ignore (harmless)<textarea data-path="prompt.ignore" rows="3"></textarea></label>
+        <label>Message style<textarea data-path="prompt.message_style" rows="3"></textarea></label>
+        <div class="row">
+          <label>Language<input data-path="prompt.language"></label>
+          <label>Max words<input type="number" data-path="prompt.max_message_words"></label>
+        </div>
+        <label>Extra instructions<textarea data-path="prompt.extra_instructions" rows="2"></textarea></label>
+      </div>
+    </details>
+
+    <details open><summary>Policy</summary>
+      <div class="form">
+        <div class="row">
+          <label>Threat threshold (0–10)<input type="number" min="0" max="10" data-path="policy.threat_threshold"></label>
+          <label>Camera cooldown (s)<input type="number" data-path="policy.cooldown_seconds"></label>
+          <label>Global cooldown (s)<input type="number" data-path="policy.global_cooldown_seconds"></label>
+        </div>
+        <label class="check"><input type="checkbox" data-path="policy.analyze_when_disarmed"> Analyse and log events while disarmed (just stay quiet)</label>
+        <label class="check"><input type="checkbox" data-path="policy.schedule_enabled"> Auto-arm on schedule</label>
+        <div id="schedule"></div>
+        <button class="ghost" id="add-window">+ add window</button>
+      </div>
+    </details>
+
+    <details><summary>Model</summary>
+      <div class="form">
+        <div class="row">
+          <label>API flavour<select data-path="model.api"><option value="openai">OpenAI-compatible (GenieX, llama-server, Ollama)</option><option value="ollama">Ollama native /api/chat</option></select></label>
+          <label>Endpoint<input data-path="model.endpoint" placeholder="http://127.0.0.1:18181/v1  or  http://127.0.0.1:11434"></label>
+          <label>Model name<input data-path="model.name"></label>
+          <label>API key (optional)<input data-path="model.api_key"></label>
+        </div>
+        <div class="row">
+          <label>Max image side (px)<input type="number" data-path="model.max_image_side"></label>
+          <label>Temperature<input type="number" step="0.05" data-path="model.temperature"></label>
+          <label>Max tokens<input type="number" data-path="model.max_tokens"></label>
+          <label>Frames per request<input type="number" min="1" max="4" data-path="model.frames_per_request"></label>
+          <label>Timeout (s)<input type="number" data-path="model.timeout_seconds"></label>
+        </div>
+        <label>Extra request fields (JSON, OpenAI flavour only)<input data-path="model.extra_body" data-json="1" placeholder='{"reasoning_effort": "none"}'></label>
+        <div class="row"><button class="ghost" id="check-model">Check connection</button><span id="model-check" class="muted"></span></div>
+      </div>
+    </details>
+
+    <details><summary>Text to speech</summary>
+      <div class="form">
+        <div class="row">
+          <label>Engine<select data-path="tts.engine"><option value="piper">piper (offline)</option><option value="pyttsx3">system voice</option><option value="none">none</option></select></label>
+          <label>Piper voice (name or .onnx path)<input data-path="tts.piper_model"></label>
+          <label>Speed<input type="number" step="0.1" data-path="tts.speed"></label>
+        </div>
+        <div class="row">
+          <input id="say-text" placeholder="Hey, you in the red jacket. Yes, you." style="flex:2">
+          <span id="say-speakers" class="checks"></span>
+          <button class="ghost" id="say">Say it</button>
+        </div>
+      </div>
+    </details>
+
+    <details open><summary>Cameras</summary>
+      <div id="cameras-form" class="cards"></div>
+      <button class="ghost" id="add-camera">+ add camera</button>
+    </details>
+
+    <details open><summary>Speakers</summary>
+      <div id="speakers-form" class="cards"></div>
+      <div class="row"><button class="ghost" id="add-speaker">+ add speaker</button><button class="ghost" id="list-audio">List audio devices</button></div>
+      <pre id="audio-devices" class="muted small"></pre>
+    </details>
+
+    <details><summary>Eufy bridge (eufy-security-ws)</summary>
+      <div class="form">
+        <label class="check"><input type="checkbox" data-path="eufy.enabled"> Enabled</label>
+        <label>WebSocket URL<input data-path="eufy.ws_url"></label>
+        <div class="row"><button class="ghost" id="list-eufy">List devices</button></div>
+        <pre id="eufy-devices" class="muted small"></pre>
+      </div>
+    </details>
+
+    <details><summary>Storage &amp; server</summary>
+      <div class="form">
+        <div class="row">
+          <label>Keep events (days)<input type="number" data-path="storage.keep_days"></label>
+          <label>Server port (restart required)<input type="number" data-path="server.port"></label>
+        </div>
+      </div>
+    </details>
+  </section>
+</main>
+
+<div id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

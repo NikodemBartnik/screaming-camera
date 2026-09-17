@@ -1,0 +1,122 @@
+# Screaming Camera - example configuration. Copy to config.yaml and edit (or edit in the web panel).
+server:
+  host: 0.0.0.0
+  port: 8080
+
+model:
+  # Any OpenAI-compatible endpoint that accepts image_url content parts.
+  #   Qualcomm IQ-9075 (GenieX):   http://127.0.0.1:18181/v1   name: gemma-4-E4B-it
+  #   Windows / Ollama:            http://127.0.0.1:11434/v1   name: gemma4:e4b
+  #   llama-server:                http://127.0.0.1:8081/v1    name: (anything)
+  endpoint: http://127.0.0.1:11434/v1
+  name: ministral-3:8b       # NOTE: gemma4:e4b in Ollama 0.34 does not see images correctly - use it via GenieX/llama-server
+  api: openai                # or "ollama" (native /api/chat, endpoint http://127.0.0.1:11434)
+  api_key: ""
+  extra_body: {reasoning_effort: none}   # keeps Ollama thinking models from spending the budget on reasoning
+  max_image_side: 768
+  jpeg_quality: 85
+  temperature: 0.4
+  max_tokens: 400
+  timeout_seconds: 120
+  frames_per_request: 1
+
+cameras:
+  - id: tapo_hall
+    name: Hallway (Tapo)
+    type: rtsp
+    url: rtsp://CAMERA_ACCOUNT:PASSWORD@192.168.1.50:554/stream2
+    fps: 2
+    motion_sensitivity: 0.02
+    speakers: [bt_outdoor]
+
+  - id: s350
+    name: Living room (Eufy S350)
+    type: rtsp
+    url: rtsp://192.168.1.60/live0   # enable "NAS / RTSP stream" in the Eufy app, copy the URL
+    fps: 2
+    motion_sensitivity: 0.02
+    speakers: [s350_cam]
+
+  - id: front
+    name: Front yard (eufyCam 3)
+    type: eufy_p2p
+    serial: T8160XXXXXXXXXXX      # Settings -> Eufy bridge -> List devices
+    fps: 2
+    event_hold_seconds: 20
+    speakers: [front_cam, bt_outdoor]
+
+  - id: doorbell
+    name: Doorbell
+    type: eufy_p2p
+    serial: T8210XXXXXXXXXXX
+    speakers: [doorbell_cam]
+
+speakers:
+  - id: bt_outdoor
+    name: Bluetooth speaker
+    type: local_audio
+    device: "JBL"          # substring of the output device name; empty = system default
+    keep_alive: true       # keeps BT speakers awake
+    volume: 1.0
+  - id: front_cam
+    name: eufyCam 3 speaker
+    type: eufy_talkback
+    serial: T8160XXXXXXXXXXX
+  - id: doorbell_cam
+    name: Doorbell speaker
+    type: eufy_talkback
+    serial: T8210XXXXXXXXXXX
+  - id: s350_cam
+    name: S350 speaker
+    type: eufy_talkback
+    serial: T8416XXXXXXXXXXX
+  - id: pi_garden
+    name: Raspberry Pi in the garden
+    type: remote_agent
+    url: http://192.168.1.80:8181
+    enabled: false
+
+eufy:
+  enabled: true
+  ws_url: ws://127.0.0.1:3000
+
+policy:
+  armed: false
+  schedule_enabled: false
+  schedule:
+    - days: [0, 1, 2, 3, 4, 5, 6]
+      start: "23:00"
+      end: "06:00"
+  threat_threshold: 6
+  cooldown_seconds: 45
+  global_cooldown_seconds: 10
+  analyze_when_disarmed: true
+
+prompt:
+  persona: >-
+    You are the AI security guard of a private house. You are observant, direct and a bit sarcastic.
+    You watch camera frames and decide whether the situation is suspicious.
+  watch_for: >-
+    People approaching the house, the door or the gate; people looking into windows; someone trying
+    to open a door, a gate or a car; someone taking a package; people loitering or hiding; anyone
+    present late at night.
+  ignore: >-
+    Pets, wind moving plants, cars passing on the street, birds, shadows, delivery workers in uniform
+    who leave a package and walk away.
+  message_style: >-
+    Speak directly to the person as if through a loudspeaker. Refer to what they are wearing and what
+    they are doing so they know they are being watched. Firm and a little witty. One or two short sentences.
+  language: English
+  extra_instructions: ""
+  max_message_words: 35
+
+tts:
+  engine: piper
+  piper_model: en_US-ryan-high
+  piper_data_dir: data/piper
+  speed: 1.0
+
+storage:
+  db_path: data/events.sqlite
+  snapshots_dir: data/snapshots
+  keep_days: 30

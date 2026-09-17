@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "screaming-camera",
+      "runtimeExecutable": ".venv/Scripts/python",
+      "runtimeArgs": ["-m", "screaming_camera", "--config", "config.yaml"],
+      "port": 8080
+    }
+  ]
+}

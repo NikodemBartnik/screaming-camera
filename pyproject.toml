@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "screaming-camera"
+version = "0.1.0"
+description = "Autonomous home monitoring: cameras -> local VLM -> personalised spoken warning."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "websockets>=12",
+    "pydantic>=2.7",
+    "pyyaml>=6",
+    "aiosqlite>=0.20",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "av>=13",
+    "sounddevice>=0.5",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+piper = ["piper-tts>=1.2"]
+sapi = ["pyttsx3>=2.90"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+screaming-camera = "screaming_camera.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["screaming_camera*"]
+
+[tool.setuptools.package-data]
+screaming_camera = ["static/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
