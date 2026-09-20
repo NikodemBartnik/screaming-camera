@@ -38,8 +38,12 @@ sudo systemctl start screaming-camera
 | `webcam` | laptop camera for development | |
 | `file` | video file or folder of images | reproducible prompt testing |
 
-Eufy bridge: copy `.env.example` → `.env` with a **guest** Eufy account, `docker compose up -d`, watch
-`docker compose logs -f` for 2FA/captcha. Then Settings → Eufy bridge → *List devices* to get serials.
+Eufy bridge: copy `.env.example` → `.env` with a **separate Eufy account invited as admin**, `docker compose up -d`.
+2FA / captcha prompts appear in Settings → Eufy bridge; *List devices* shows serials for cameras and speakers.
+Verified on HomeBase 3 with eufyCam 3 (4K H.264), doorbell T8210, T8170: first frame ~1–3 s after wake.
+Wake cameras one at a time — several simultaneous P2P streams leave some stuck (they time out after 20 s).
+Talkback needs the livestream running (the speaker starts it if needed); if the bridge reports
+"talkback already running from another client" after an app crash, `docker compose restart`.
 
 ## Speakers
 
@@ -57,7 +61,7 @@ Any endpoint that accepts `image_url` parts in `/v1/chat/completions`:
 
 | Where | endpoint | model |
 |---|---|---|
-| IQ‑9075, GenieX (NPU) | `http://127.0.0.1:18181/v1` | `gemma-4-E4B-it` |
+| IQ‑9075, GenieX (NPU) | `http://127.0.0.1:18181/v1` | `qualcomm/Qwen3-VL-4B-Instruct:W4A16` (`geniex pull ai-hub-models/Qwen3-VL-4B-Instruct:W4A16`) — ~2.5–4.5 s/frame. **Gemma-4-E4B-it W4A16 on GenieX 0.6.1 returns garbage vision embeddings** ("I cannot see any image") — text works, images don't; reported to Qualcomm. |
 | Windows, Ollama | `http://127.0.0.1:11434/v1` | `ministral-3:8b`, `qwen3.8:27b` … (`gemma4:e4b` in Ollama 0.34 does **not** see images - known issue) |
 | llama‑server | `http://127.0.0.1:8081/v1` | any GGUF + `--mmproj` |
 
