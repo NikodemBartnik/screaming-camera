@@ -21,7 +21,32 @@ sudo usermod -aG docker "$USER" || true
 if [ ! -f .env ]; then cp .env.example .env; echo ">> edit .env with your Eufy guest account, then: docker compose up -d"; fi
 
 echo "== GenieX (Qualcomm on-device runtime, OpenAI-compatible server on :18181)"
-if ! command -v geniex >/dev/null 2>&1; then
+export PATH="$HOME/.local/bin:$PATH"
+if command -v geniex >/dev/null 2>&1; then
+  # Run the GenieX server as a service so it survives logout/reboot. Model: Gemma 4 E4B (vision), W4A16 on the NPU.
+  #   geniex pull ai-hub-models/Gemma-4-E4B-it:W4A16
+  sudo tee /etc/systemd/system/geniex.service >/dev/null <<EOF2
+[Unit]
+Description=GenieX model server (Qualcomm)
+After=network.target
+
+[Service]
+User=$USER
+Environment=HOME=$HOME
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GENIEX_HOST=127.0.0.1:18181
+Environment=GENIEX_LOG=info
+ExecStart=$(command -v geniex) serve --skip-update
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF2
+  sudo systemctl daemon-reload
+  sudo systemctl enable geniex
+  echo ">> geniex.service installed: sudo systemctl start geniex   (logs: journalctl -fu geniex)"
+else
   cat <<'EOF'
 >> GenieX is not installed. Follow https://geniex.aihub.qualcomm.com/ (developer preview), then:
      geniex pull google/gemma-4-E4B-it-qat-q4_0-gguf     # or the model name shown by the Qualcomm team
