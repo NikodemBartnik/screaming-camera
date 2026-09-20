@@ -39,6 +39,8 @@ Environment=GENIEX_LOG=info
 ExecStart=$(command -v geniex) serve --skip-update
 Restart=always
 RestartSec=5
+# fastrpc maps large NPU buffers; the systemd default (8 MB) makes those mmaps fail
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target
