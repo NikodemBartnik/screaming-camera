@@ -41,7 +41,9 @@ class _ChunkReader:
         self._q.put(None)
 
     def read(self, n: int = -1) -> bytes:
-        while len(self._buf) < n and not self._eof:
+        # Return as soon as *any* data is available (short reads are fine for ffmpeg) - waiting for a
+        # full n bytes would stall the decoder on a low-bitrate battery-camera stream.
+        while not self._buf and not self._eof:
             try:
                 chunk = self._q.get(timeout=10)
             except queue.Empty:
@@ -50,6 +52,8 @@ class _ChunkReader:
                 self._eof = True
                 break
             self._buf += chunk
+        if n is None or n < 0:
+            n = len(self._buf)
         out, self._buf = self._buf[:n], self._buf[n:]
         return out
 
@@ -65,6 +69,8 @@ class EufyP2PSource(CameraSource):
         self._pending_trigger: str | None = None
         self._starting = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._chunks = 0
+        self._bytes = 0
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -116,6 +122,7 @@ class EufyP2PSource(CameraSource):
         self._starting = False
         self._close_reader()
         self._reader = _ChunkReader()
+        self._chunks = self._bytes = 0
         self.status = "streaming"
         self.last_error = ""
 
@@ -128,7 +135,13 @@ class EufyP2PSource(CameraSource):
         codec = str(meta.get("videoCodec", "h264")).lower()
         self._codec = CODEC_MAP.get(codec, "h264")
         assert self._reader is not None
-        self._reader.feed(decode_buffer(ev.get("buffer")))
+        data = decode_buffer(ev.get("buffer"))
+        self._chunks += 1
+        self._bytes += len(data)
+        if self._chunks == 1:
+            log.info("camera %s: first video chunk: codec=%s %sx%s @%s fps, %d bytes", self.cfg.id,
+                     meta.get("videoCodec"), meta.get("videoWidth"), meta.get("videoHeight"), meta.get("videoFPS"), len(data))
+        self._reader.feed(data)
         if self._decoder is None or not self._decoder.is_alive():
             self._decoder = threading.Thread(target=self._decode, args=(self._reader, self._codec),
                                              name=f"eufy-dec-{self.cfg.id}", daemon=True)
@@ -148,11 +161,20 @@ class EufyP2PSource(CameraSource):
     # ---- decoding --------------------------------------------------------------------------
     def _decode(self, reader: _ChunkReader, codec: str) -> None:
         throttle = FrameThrottle(self.cfg.fps)
+        decoded = 0
         try:
-            with av.open(reader, format=codec, mode="r") as container:
+            # Raw H.264/H.265 elementary stream: keep ffmpeg's probing tiny (default 5 MB would buffer
+            # for ages on a ~1 Mbit/s battery camera) and use slice threading - frame threading holds
+            # back a dozen frames before emitting the first one.
+            opts = {"probesize": "65536", "analyzeduration": "0"}
+            with av.open(reader, format=codec, mode="r", options=opts) as container:
                 stream = container.streams.video[0]
-                stream.thread_type = "AUTO"
+                stream.thread_type = "SLICE"
                 for frame in container.decode(stream):
+                    decoded += 1
+                    if decoded == 1:
+                        log.info("camera %s: first decoded frame %dx%d after %d chunks / %d bytes", self.cfg.id,
+                                 frame.width, frame.height, self._chunks, self._bytes)
                     if self.stopped:
                         break
                     if not throttle.allow() and self._pending_trigger is None:
