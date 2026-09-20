@@ -53,6 +53,7 @@ class EufyWsClient:
         self.captcha_image: str | None = None  # data URL / base64 png
         self.connection_error = ""
         self.livestreams: set[str] = set()  # serials with a running livestream (from events)
+        self.talkbacks: set[str] = set()  # serials with a station-confirmed talkback session
         self.stream_holds: dict[str, float] = {}  # serial -> monotonic deadline; keeps a stream open (talkback)
         self._ws: websockets.ClientConnection | None = None
         self._pending: dict[str, asyncio.Future] = {}
@@ -192,6 +193,11 @@ class EufyWsClient:
                 self.livestreams.add(str(ev.get("serialNumber")))
             elif source == "device" and name == "livestream stopped":
                 self.livestreams.discard(str(ev.get("serialNumber")))
+                self.talkbacks.discard(str(ev.get("serialNumber")))
+            elif source == "device" and name == "talkback started":
+                self.talkbacks.add(str(ev.get("serialNumber")))
+            elif source == "device" and name == "talkback stopped":
+                self.talkbacks.discard(str(ev.get("serialNumber")))
             elif source == "device" and name == "device added":
                 self._spawn(self._load_device(ev.get("device")), "device-added")
             elif source == "device" and name == "device removed":
@@ -296,8 +302,14 @@ class EufyWsClient:
                 return True
         raise TimeoutError(f"livestream for {serial} did not start within {timeout}s")
 
-    async def start_talkback(self, serial: str) -> None:
+    async def start_talkback(self, serial: str, timeout: float = 10.0) -> None:
+        """Open a talkback session and wait until the station confirms it ("talkback started")."""
         await self.send("device.start_talkback", serialNumber=serial)
+        for _ in range(int(timeout / 0.1)):
+            if serial in self.talkbacks:
+                return
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"talkback for {serial} not confirmed by the station within {timeout}s")
 
     async def talkback_audio_data(self, serial: str, chunk: bytes) -> None:
         # Buffer.from(array) on the Node side; lists are verbose but unambiguous.

@@ -88,8 +88,8 @@ class EufyTalkbackSpeaker(Speaker):
                 # Talkback only works while the camera's livestream is running.
                 self.client.hold_stream(self.cfg.serial, duration + 20)
                 started_here = await self.client.ensure_livestream(self.cfg.serial)
-                await self.client.start_talkback(self.cfg.serial)
-                await asyncio.sleep(0.5)  # let the station open the audio channel
+                await self.client.start_talkback(self.cfg.serial)  # returns once the station confirmed
+                await asyncio.sleep(0.2)
                 for i in range(0, len(packets), frames_per_chunk):
                     chunk = b"".join(packets[i:i + frames_per_chunk])
                     await self.client.talkback_audio_data(self.cfg.serial, chunk)

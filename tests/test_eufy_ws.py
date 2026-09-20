@@ -42,6 +42,10 @@ class FakeEufyWs:
                 result = {}
                 await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "livestream started",
                                                                       "serialNumber": msg["serialNumber"]}}))
+            elif cmd == "device.start_talkback":
+                result = {}
+                await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "talkback started",
+                                                                      "serialNumber": msg["serialNumber"]}}))
             elif cmd == "driver.set_verify_code":
                 self.driver_connected = True
                 result = {"result": True}
@@ -119,5 +123,16 @@ async def test_verify_code_flow(server):
         # driver "connected" event triggers a refresh -> devices appear
         assert await _wait(lambda: client.driver_connected and "T8160TEST" in client.devices)
         assert not client.needs_verify_code
+    finally:
+        await client.stop()
+
+
+async def test_talkback_waits_for_confirmation(server):
+    client = EufyWsClient(server.url)
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        await client.start_talkback("T8160TEST")
+        assert "T8160TEST" in client.talkbacks
     finally:
         await client.stop()
