@@ -51,6 +51,8 @@ Environment=XDG_RUNTIME_DIR=/run/user/$(id -u)
 ExecStart=$(pwd)/.venv/bin/python -m screaming_camera --config config.yaml
 Restart=always
 RestartSec=5
+TimeoutStopSec=15
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target

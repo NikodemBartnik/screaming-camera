@@ -133,16 +133,40 @@ class EufyWsClient:
         state = await self.send("start_listening")
         st = state.get("state", {})
         self.driver_connected = bool(st.get("driver", {}).get("connected", False))
-        for dev in st.get("devices", []):
-            if "serialNumber" in dev:
-                self.devices[dev["serialNumber"]] = dev
-        for station in st.get("stations", []):
-            if "serialNumber" in station:
-                self.stations[station["serialNumber"]] = station
+        # Schema >= 13 lists devices/stations as serial-number strings; older schemas as full objects.
+        await asyncio.gather(*(self._load_device(d) for d in st.get("devices", [])))
+        await asyncio.gather(*(self._load_station(s) for s in st.get("stations", [])))
         log.info("eufy-ws: driver connected=%s, %d devices, %d stations",
                  self.driver_connected, len(self.devices), len(self.stations))
+        for serial, props in self.devices.items():
+            log.info("eufy-ws: device %s = %s (%s) on station %s", serial, props.get("name"),
+                     props.get("model"), props.get("stationSerialNumber"))
         if not self.driver_connected:
             log.warning("eufy-ws: driver not connected - check credentials / 2FA / captcha in the sidecar logs")
+
+    async def _load_device(self, item: Any) -> None:
+        if isinstance(item, dict) and "serialNumber" in item:
+            self.devices[item["serialNumber"]] = item
+            return
+        serial = str(item)
+        try:
+            res = await self.send("device.get_properties", serialNumber=serial)
+            self.devices[serial] = {"serialNumber": serial, **(res.get("properties") or {})}
+        except Exception as e:  # noqa: BLE001
+            log.warning("eufy-ws: get_properties for device %s failed: %s", serial, e)
+            self.devices.setdefault(serial, {"serialNumber": serial})
+
+    async def _load_station(self, item: Any) -> None:
+        if isinstance(item, dict) and "serialNumber" in item:
+            self.stations[item["serialNumber"]] = item
+            return
+        serial = str(item)
+        try:
+            res = await self.send("station.get_properties", serialNumber=serial)
+            self.stations[serial] = {"serialNumber": serial, **(res.get("properties") or {})}
+        except Exception as e:  # noqa: BLE001
+            log.warning("eufy-ws: get_properties for station %s failed: %s", serial, e)
+            self.stations.setdefault(serial, {"serialNumber": serial})
 
     async def _dispatch(self, msg: dict[str, Any]) -> None:
         mtype = msg.get("type")
@@ -161,6 +185,14 @@ class EufyWsClient:
                 self._spawn(self._on_driver_event(name, ev), f"driver:{name}")
             if source == "device" and name == "property changed" and ev.get("serialNumber") in self.devices:
                 self.devices[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
+            elif source == "device" and name == "device added":
+                self._spawn(self._load_device(ev.get("device")), "device-added")
+            elif source == "device" and name == "device removed":
+                self.devices.pop(str(ev.get("device")), None)
+            elif source == "station" and name == "station added":
+                self._spawn(self._load_station(ev.get("station")), "station-added")
+            elif source == "station" and name == "station removed":
+                self.stations.pop(str(ev.get("station")), None)
             for handler in self._handlers.get(f"{source}:{name}", []):
                 try:
                     res = handler(ev)

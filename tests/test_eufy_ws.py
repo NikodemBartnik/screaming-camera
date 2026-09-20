@@ -10,7 +10,9 @@ import websockets
 
 from screaming_camera.eufy.ws_client import EufyWsClient
 
-DEVICES = [{"serialNumber": "T8160TEST", "name": "Front", "model": "T8160", "stationSerialNumber": "T8030TEST"}]
+# Schema >= 13: start_listening lists serials only; properties come from *.get_properties.
+DEVICE_PROPS = {"T8160TEST": {"name": "Front", "model": "T8160", "type": 19, "stationSerialNumber": "T8030TEST", "battery": 80}}
+STATION_PROPS = {"T8030TEST": {"name": "HomeBase 3", "model": "T8030", "lanIpAddress": "192.168.1.20"}}
 
 
 class FakeEufyWs:
@@ -30,8 +32,12 @@ class FakeEufyWs:
                 result = {}
             elif cmd == "start_listening":
                 result = {"state": {"driver": {"connected": self.driver_connected},
-                                    "devices": DEVICES if self.driver_connected else [],
-                                    "stations": [{"serialNumber": "T8030TEST"}]}}
+                                    "devices": list(DEVICE_PROPS) if self.driver_connected else [],
+                                    "stations": list(STATION_PROPS) if self.driver_connected else []}}
+            elif cmd == "device.get_properties":
+                result = {"serialNumber": msg["serialNumber"], "properties": DEVICE_PROPS[msg["serialNumber"]]}
+            elif cmd == "station.get_properties":
+                result = {"serialNumber": msg["serialNumber"], "properties": STATION_PROPS[msg["serialNumber"]]}
             elif cmd == "device.start_livestream":
                 result = {}
                 await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "livestream started",
@@ -73,7 +79,9 @@ async def test_handshake_loads_devices(server):
         assert await _wait(lambda: client.driver_connected and "T8160TEST" in client.devices), \
             f"handshake did not complete; commands seen: {[c['command'] for c in server.commands]}"
         assert [c["command"] for c in server.commands[:2]] == ["set_api_schema", "start_listening"]
-        assert client.device_summary()[0]["station"] == "T8030TEST"
+        summary = client.device_summary()[0]
+        assert summary["station"] == "T8030TEST" and summary["name"] == "Front" and summary["battery"] == 80
+        assert client.stations["T8030TEST"]["lanIpAddress"] == "192.168.1.20"
     finally:
         await client.stop()
 

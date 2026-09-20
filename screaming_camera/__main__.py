@@ -28,8 +28,10 @@ def main() -> None:
 
     store = ConfigStore(Path(args.config))
     app = create_app(store)
+    # timeout_graceful_shutdown: open MJPEG/WebSocket connections from the panel must not keep the
+    # process alive forever on SIGTERM (systemd would otherwise SIGKILL it after 90s).
     uvicorn.run(app, host=args.host or store.cfg.server.host, port=args.port or store.cfg.server.port,
-                log_level="warning")
+                log_level="warning", timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":
