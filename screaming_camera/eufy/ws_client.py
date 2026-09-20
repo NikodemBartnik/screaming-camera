@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 import uuid
 from collections import defaultdict
 from typing import Any, Awaitable, Callable
@@ -51,6 +52,8 @@ class EufyWsClient:
         self.captcha_id: str | None = None
         self.captcha_image: str | None = None  # data URL / base64 png
         self.connection_error = ""
+        self.livestreams: set[str] = set()  # serials with a running livestream (from events)
+        self.stream_holds: dict[str, float] = {}  # serial -> monotonic deadline; keeps a stream open (talkback)
         self._ws: websockets.ClientConnection | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)  # key: "device:motion detected"
@@ -185,6 +188,10 @@ class EufyWsClient:
                 self._spawn(self._on_driver_event(name, ev), f"driver:{name}")
             if source == "device" and name == "property changed" and ev.get("serialNumber") in self.devices:
                 self.devices[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
+            elif source == "device" and name == "livestream started":
+                self.livestreams.add(str(ev.get("serialNumber")))
+            elif source == "device" and name == "livestream stopped":
+                self.livestreams.discard(str(ev.get("serialNumber")))
             elif source == "device" and name == "device added":
                 self._spawn(self._load_device(ev.get("device")), "device-added")
             elif source == "device" and name == "device removed":
@@ -269,6 +276,25 @@ class EufyWsClient:
     async def is_livestreaming(self, serial: str) -> bool:
         res = await self.send("device.is_livestreaming", serialNumber=serial)
         return bool(res.get("livestreaming"))
+
+    def hold_stream(self, serial: str, seconds: float) -> None:
+        """Ask camera sources not to stop this livestream for a while (e.g. while talkback plays)."""
+        self.stream_holds[serial] = max(self.stream_holds.get(serial, 0.0), time.monotonic() + seconds)
+
+    def stream_held(self, serial: str) -> bool:
+        return self.stream_holds.get(serial, 0.0) > time.monotonic()
+
+    async def ensure_livestream(self, serial: str, timeout: float = 12.0) -> bool:
+        """Start the livestream if needed and wait until it is running. Returns True if we started it."""
+        if serial in self.livestreams or await self.is_livestreaming(serial):
+            self.livestreams.add(serial)
+            return False
+        await self.start_livestream(serial)
+        for _ in range(int(timeout / 0.25)):
+            await asyncio.sleep(0.25)
+            if serial in self.livestreams:
+                return True
+        raise TimeoutError(f"livestream for {serial} did not start within {timeout}s")
 
     async def start_talkback(self, serial: str) -> None:
         await self.send("device.start_talkback", serialNumber=serial)

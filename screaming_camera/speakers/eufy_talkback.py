@@ -81,8 +81,13 @@ class EufyTalkbackSpeaker(Speaker):
     async def play(self, wav: bytes) -> None:
         packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume)
         frames_per_chunk = max(int(CHUNK_SECONDS * AAC_RATE / 1024), 1)
+        duration = len(packets) * 1024 / AAC_RATE
+        started_here = False
         async with self._lock:
             try:
+                # Talkback only works while the camera's livestream is running.
+                self.client.hold_stream(self.cfg.serial, duration + 20)
+                started_here = await self.client.ensure_livestream(self.cfg.serial)
                 await self.client.start_talkback(self.cfg.serial)
                 await asyncio.sleep(0.5)  # let the station open the audio channel
                 for i in range(0, len(packets), frames_per_chunk):
@@ -98,3 +103,6 @@ class EufyTalkbackSpeaker(Speaker):
                 raise
             finally:
                 await self.client.stop_talkback(self.cfg.serial)
+                self.client.stream_holds.pop(self.cfg.serial, None)
+                if started_here:
+                    await self.client.stop_livestream(self.cfg.serial)

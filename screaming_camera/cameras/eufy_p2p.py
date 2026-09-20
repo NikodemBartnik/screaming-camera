@@ -93,7 +93,8 @@ class EufyP2PSource(CameraSource):
                     self.status = "idle"
                     self.last_error = "camera did not start streaming (HomeBase busy?)"
                     await self.client.stop_livestream(self.cfg.serial)
-                if self._reader is not None and time.monotonic() > self._hold_until:
+                if (self._reader is not None and time.monotonic() > self._hold_until
+                        and not self.client.stream_held(self.cfg.serial)):
                     log.info("camera %s: hold expired, stopping livestream", self.cfg.id)
                     await self.client.stop_livestream(self.cfg.serial)
                     self._close_reader()
@@ -181,19 +182,29 @@ class EufyP2PSource(CameraSource):
             with av.open(reader, format=codec, mode="r", options=opts) as container:
                 stream = container.streams.video[0]
                 stream.thread_type = "SLICE"
-                for frame in container.decode(stream):
-                    decoded += 1
-                    if decoded == 1:
-                        log.info("camera %s: first decoded frame %dx%d after %d chunks / %d bytes", self.cfg.id,
-                                 frame.width, frame.height, self._chunks, self._bytes)
+                bad_packets = 0
+                for packet in container.demux(stream):
                     if self.stopped:
                         break
-                    if not throttle.allow() and self._pending_trigger is None:
+                    try:
+                        frames = packet.decode()
+                    except av.error.InvalidDataError:
+                        # Corrupt / mid-GOP packet (P2P drops happen): skip it, the next keyframe recovers.
+                        bad_packets += 1
+                        if bad_packets in (1, 50, 500):
+                            log.warning("camera %s: skipped %d undecodable packet(s)", self.cfg.id, bad_packets)
                         continue
-                    img = frame.to_ndarray(format="bgr24")
-                    trig, self._pending_trigger = self._pending_trigger, None
-                    assert self._loop is not None
-                    self._loop.call_soon_threadsafe(self._put, Frame(self.cfg.id, img, trigger=trig))
+                    for frame in frames:
+                        decoded += 1
+                        if decoded == 1:
+                            log.info("camera %s: first decoded frame %dx%d after %d chunks / %d bytes", self.cfg.id,
+                                     frame.width, frame.height, self._chunks, self._bytes)
+                        if not throttle.allow() and self._pending_trigger is None:
+                            continue
+                        img = frame.to_ndarray(format="bgr24")
+                        trig, self._pending_trigger = self._pending_trigger, None
+                        assert self._loop is not None
+                        self._loop.call_soon_threadsafe(self._put, Frame(self.cfg.id, img, trigger=trig))
         except Exception as e:  # noqa: BLE001
             if reader is self._reader:  # unexpected - otherwise it's just the stream ending
                 self.last_error = f"decode: {e}"
