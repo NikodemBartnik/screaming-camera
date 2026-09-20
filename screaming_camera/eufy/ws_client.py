@@ -84,9 +84,15 @@ class EufyWsClient:
                     self.connected = True
                     self.last_error = ""
                     log.info("eufy-ws connected to %s", self.url)
-                    await self._handshake()
-                    async for raw in ws:
-                        await self._dispatch(json.loads(raw))
+                    # The handshake awaits command results, which only the read loop below can deliver,
+                    # so it must run concurrently with it - never inline before it.
+                    handshake = asyncio.create_task(self._handshake(), name="eufy-handshake")
+                    handshake.add_done_callback(self._log_task_failure)
+                    try:
+                        async for raw in ws:
+                            await self._dispatch(json.loads(raw))
+                    finally:
+                        handshake.cancel()
             except Exception as e:  # noqa: BLE001
                 self.last_error = str(e)
                 log.warning("eufy-ws: %s (retry in 5s)", e)
@@ -101,9 +107,27 @@ class EufyWsClient:
             if not self._stop.is_set():
                 await asyncio.sleep(5)
 
+    @staticmethod
+    def _log_task_failure(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        if exc := task.exception():
+            log.warning("eufy-ws: %s failed: %s", task.get_name(), exc)
+
+    def _spawn(self, coro, name: str) -> asyncio.Task:
+        task = asyncio.create_task(coro, name=f"eufy-{name}")
+        task.add_done_callback(self._log_task_failure)
+        return task
+
     async def _handshake(self) -> None:
-        await self.send("set_api_schema", schemaVersion=SCHEMA_VERSION)
-        await self.refresh_state()
+        try:
+            await self.send("set_api_schema", schemaVersion=SCHEMA_VERSION)
+            await self.refresh_state()
+        except Exception as e:  # noqa: BLE001 - drop the socket so the run loop reconnects cleanly
+            self.last_error = f"handshake: {e}"
+            log.warning("eufy-ws: handshake failed (%s), reconnecting", e)
+            if self._ws is not None:
+                await self._ws.close()
 
     async def refresh_state(self) -> None:
         state = await self.send("start_listening")
@@ -134,14 +158,16 @@ class EufyWsClient:
             ev = msg.get("event", {})
             source, name = ev.get("source"), ev.get("event")
             if source == "driver":
-                await self._on_driver_event(name, ev)
+                self._spawn(self._on_driver_event(name, ev), f"driver:{name}")
             if source == "device" and name == "property changed" and ev.get("serialNumber") in self.devices:
                 self.devices[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
             for handler in self._handlers.get(f"{source}:{name}", []):
                 try:
                     res = handler(ev)
                     if asyncio.iscoroutine(res):
-                        await res
+                        # Async handlers may send commands and await their results, which this very
+                        # loop delivers - run them as tasks so the read loop never blocks on them.
+                        self._spawn(res, f"{source}:{name}")
                 except Exception:  # noqa: BLE001
                     log.exception("eufy event handler failed for %s:%s", source, name)
             return
