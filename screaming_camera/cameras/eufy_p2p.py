@@ -21,6 +21,7 @@ from .base import CameraSource, Frame, FrameThrottle
 log = logging.getLogger(__name__)
 
 CODEC_MAP = {"h264": "h264", "h265": "hevc", "hevc": "hevc"}
+WAKE_TIMEOUT = 20.0  # seconds to wait for "livestream started" after start_livestream
 TRIGGER_EVENTS = {"motion detected": "motion", "person detected": "person", "rings": "ring",
                   "stranger person detected": "stranger", "vehicle detected": "vehicle",
                   "package delivered": "package", "package taken": "package_taken"}
@@ -68,6 +69,7 @@ class EufyP2PSource(CameraSource):
         self._hold_until = 0.0
         self._pending_trigger: str | None = None
         self._starting = False
+        self._starting_since = 0.0
         self._loop: asyncio.AbstractEventLoop | None = None
         self._chunks = 0
         self._bytes = 0
@@ -83,6 +85,14 @@ class EufyP2PSource(CameraSource):
         try:
             while not self.stopped:
                 await asyncio.sleep(1)
+                if self._starting and time.monotonic() - self._starting_since > WAKE_TIMEOUT:
+                    # HomeBase accepted start_livestream but never streamed (busy / too many P2P streams).
+                    log.warning("camera %s: no livestream within %ss, giving up (will retry on next event)",
+                                self.cfg.id, WAKE_TIMEOUT)
+                    self._starting = False
+                    self.status = "idle"
+                    self.last_error = "camera did not start streaming (HomeBase busy?)"
+                    await self.client.stop_livestream(self.cfg.serial)
                 if self._reader is not None and time.monotonic() > self._hold_until:
                     log.info("camera %s: hold expired, stopping livestream", self.cfg.id)
                     await self.client.stop_livestream(self.cfg.serial)
@@ -106,6 +116,7 @@ class EufyP2PSource(CameraSource):
         self._pending_trigger = label
         if self._reader is None and not self._starting:
             self._starting = True
+            self._starting_since = time.monotonic()
             self.status = "waking"
             log.info("camera %s: %s -> starting livestream", self.cfg.id, label)
             try:
