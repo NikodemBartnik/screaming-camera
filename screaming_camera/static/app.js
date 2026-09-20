@@ -43,6 +43,8 @@ function renderState(s) {
   chip("#chip-tts", s.tts.status !== "error", "tts " + (s.tts.engine === "none" ? "off" : s.tts.status), s.tts.engine === "none");
   $("#uptime").textContent = `up ${Math.floor(s.uptime / 60)} min · ${s.cameras.length} cameras · ${s.speakers.length} speakers`;
   renderCameras(s.cameras);
+  if (config) renderEufyLogin(s.eufy);
+  if (s.eufy.enabled && (s.eufy.needs_verify_code || s.eufy.captcha_id)) showBanner("Eufy needs a 2FA code / captcha - go to Settings > Eufy bridge");
   const sel = $("#events-camera");
   if (sel.options.length <= 1) s.cameras.forEach((c) => sel.add(new Option(c.name, c.id)));
 }
@@ -274,7 +276,27 @@ $("#say").addEventListener("click", async () => {
   try { const r = await api("/api/test/speak", { method: "POST", body: JSON.stringify({ text: $("#say-text").value || $("#say-text").placeholder, speakers }) }); toast(r.ok ? "Played" : "Failed: " + JSON.stringify(r.speakers), !r.ok); } catch (e) { toast(e.message, true); }
 });
 $("#list-audio").addEventListener("click", async () => { const d = await api("/api/audio/devices"); $("#audio-devices").textContent = Array.isArray(d) ? d.map((x) => `${x.index}: ${x.name}  [${x.hostapi}]`).join("\n") : d.error; });
-$("#list-eufy").addEventListener("click", async () => { const d = await api("/api/eufy/devices"); $("#eufy-devices").textContent = !d.enabled ? "Eufy bridge disabled (enable, save, then list)." : !d.driver_connected ? "Bridge reachable but not logged in to Eufy - check docker logs eufy-security-ws (2FA / captcha)." : d.devices.map((x) => `${x.serial}  ${x.name} (${x.model}) station ${x.station} battery ${x.battery ?? "-"}`).join("\n") || "no devices"; });
+function renderEufyLogin(e) {
+  const box = $("#eufy-login");
+  if (!e || !e.enabled) { box.hidden = true; $("#eufy-status").textContent = e ? "bridge disabled" : ""; return; }
+  $("#eufy-status").textContent = !e.connected ? "bridge unreachable (is docker compose up?)" : e.driver_connected ? "logged in to Eufy cloud" : "bridge up, not logged in" + (e.connection_error ? ": " + e.connection_error : "");
+  const captcha = !!e.captcha_id, verify = !!e.needs_verify_code;
+  box.hidden = !(captcha || verify);
+  $("#eufy-captcha").hidden = !captcha;
+  if (captcha) { const img = e.captcha_image || ""; $("#eufy-captcha").src = img.startsWith("data:") ? img : "data:image/png;base64," + img; }
+  $("#eufy-login-msg").textContent = captcha ? "Eufy asks for a captcha - type the characters from the image:" : "Eufy sent a verification code to the account's e-mail - type it here:";
+  box.dataset.kind = captcha ? "captcha" : "verify_code";
+}
+$("#eufy-send-code").addEventListener("click", async () => {
+  const kind = $("#eufy-login").dataset.kind, code = $("#eufy-code").value.trim();
+  if (!code) return;
+  try { await api(`/api/eufy/${kind}`, { method: "POST", body: JSON.stringify({ code }) }); $("#eufy-code").value = ""; toast("Sent - wait a few seconds, then List devices"); } catch (e) { toast(e.message, true); }
+});
+$("#eufy-reconnect").addEventListener("click", async () => { try { await api("/api/eufy/connect", { method: "POST" }); toast("Connecting - watch for a 2FA / captcha prompt"); } catch (e) { toast(e.message, true); } });
+$("#list-eufy").addEventListener("click", async () => {
+  const d = await api("/api/eufy/devices"); renderEufyLogin(d);
+  $("#eufy-devices").textContent = !d.enabled ? "Eufy bridge disabled (enable, save, then list)." : !d.connected ? "Cannot reach eufy-security-ws - run `docker compose up -d` and check the URL." : !d.driver_connected ? "Bridge reachable but not logged in to Eufy - complete 2FA / captcha above or check `docker compose logs -f`." : d.devices.map((x) => `${x.serial}  ${x.name} (${x.model}) station ${x.station} battery ${x.battery ?? "-"}`).join("\n") || "no devices (try Reconnect / check ACCEPT_INVITATIONS)";
+});
 
 /* ---------------- boot ---------------- */
 (async () => {

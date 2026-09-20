@@ -32,6 +32,10 @@ class SpeakRequest(BaseModel):
     speakers: list[str]
 
 
+class CodeRequest(BaseModel):
+    code: str
+
+
 def create_app(store: ConfigStore) -> FastAPI:
     engine = Engine(store)
 
@@ -164,8 +168,45 @@ def create_app(store: ConfigStore) -> FastAPI:
     async def eufy_devices():
         if not engine.eufy:
             return {"enabled": False, "devices": []}
-        return {"enabled": True, "connected": engine.eufy.connected, "driver_connected": engine.eufy.driver_connected,
+        return {"enabled": True, **engine.eufy.login_state(),
                 "devices": engine.eufy.device_summary(), "stations": list(engine.eufy.stations.keys())}
+
+    def _eufy():
+        if not engine.eufy or not engine.eufy.connected:
+            raise HTTPException(400, "Eufy bridge not connected - enable it in settings and start docker compose")
+        return engine.eufy
+
+    @app.post("/api/eufy/verify_code")
+    async def eufy_verify_code(req: CodeRequest):
+        try:
+            await _eufy().set_verify_code(req.code)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, str(e))
+        return {"ok": True}
+
+    @app.post("/api/eufy/captcha")
+    async def eufy_captcha(req: CodeRequest):
+        try:
+            await _eufy().set_captcha(req.code)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, str(e))
+        return {"ok": True}
+
+    @app.post("/api/eufy/connect")
+    async def eufy_connect():
+        try:
+            await _eufy().connect_driver()
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, str(e))
+        return {"ok": True}
+
+    @app.post("/api/eufy/refresh")
+    async def eufy_refresh():
+        try:
+            await _eufy().refresh_state()
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, str(e))
+        return {"ok": True, "devices": engine.eufy.device_summary()}
 
     # ---- live feed --------------------------------------------------------------------------
     @app.websocket("/ws")

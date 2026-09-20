@@ -46,6 +46,11 @@ class EufyWsClient:
         self.last_error = ""
         self.devices: dict[str, dict[str, Any]] = {}  # serial -> properties
         self.stations: dict[str, dict[str, Any]] = {}
+        # first-login helpers: Eufy asks for an e-mail 2FA code and sometimes a captcha
+        self.needs_verify_code = False
+        self.captcha_id: str | None = None
+        self.captcha_image: str | None = None  # data URL / base64 png
+        self.connection_error = ""
         self._ws: websockets.ClientConnection | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)  # key: "device:motion detected"
@@ -98,6 +103,9 @@ class EufyWsClient:
 
     async def _handshake(self) -> None:
         await self.send("set_api_schema", schemaVersion=SCHEMA_VERSION)
+        await self.refresh_state()
+
+    async def refresh_state(self) -> None:
         state = await self.send("start_listening")
         st = state.get("state", {})
         self.driver_connected = bool(st.get("driver", {}).get("connected", False))
@@ -125,8 +133,8 @@ class EufyWsClient:
         if mtype == "event":
             ev = msg.get("event", {})
             source, name = ev.get("source"), ev.get("event")
-            if source == "driver" and name in ("connected", "disconnected"):
-                self.driver_connected = name == "connected"
+            if source == "driver":
+                await self._on_driver_event(name, ev)
             if source == "device" and name == "property changed" and ev.get("serialNumber") in self.devices:
                 self.devices[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
             for handler in self._handlers.get(f"{source}:{name}", []):
@@ -141,7 +149,44 @@ class EufyWsClient:
             log.info("eufy-ws server %s (schema %s-%s)", msg.get("serverVersion"),
                      msg.get("minSchemaVersion"), msg.get("maxSchemaVersion"))
 
+    async def _on_driver_event(self, name: str, ev: dict[str, Any]) -> None:
+        if name == "connected":
+            self.driver_connected = True
+            self.needs_verify_code = False
+            self.captcha_id = self.captcha_image = None
+            self.connection_error = ""
+            log.info("eufy-ws: driver connected to Eufy cloud, refreshing device list")
+            try:
+                await self.refresh_state()
+            except Exception as e:  # noqa: BLE001
+                log.warning("eufy-ws: refresh after connect failed: %s", e)
+        elif name == "disconnected":
+            self.driver_connected = False
+        elif name == "verify code":
+            self.needs_verify_code = True
+            log.warning("eufy-ws: Eufy sent a 2FA code to your e-mail - enter it in the panel (Settings -> Eufy bridge)")
+        elif name == "captcha request":
+            self.captcha_id = ev.get("captchaId")
+            self.captcha_image = ev.get("captcha")
+            log.warning("eufy-ws: captcha required - solve it in the panel (Settings -> Eufy bridge)")
+        elif name == "connection error":
+            self.connection_error = str(ev.get("error", ""))
+            log.warning("eufy-ws: connection error: %s", self.connection_error)
+
     # ---- commands --------------------------------------------------------------------------
+    async def set_verify_code(self, code: str) -> None:
+        await self.send("driver.set_verify_code", verifyCode=code.strip())
+        self.needs_verify_code = False
+
+    async def set_captcha(self, code: str) -> None:
+        if not self.captcha_id:
+            raise RuntimeError("no captcha pending")
+        await self.send("driver.set_captcha", captchaId=self.captcha_id, captcha=code.strip())
+        self.captcha_id = self.captcha_image = None
+
+    async def connect_driver(self) -> None:
+        await self.send("driver.connect", timeout=30)
+
     async def send(self, command: str, timeout: float = 15.0, **kwargs: Any) -> dict[str, Any]:
         if self._ws is None:
             raise ConnectionError("eufy-ws not connected")
@@ -179,6 +224,17 @@ class EufyWsClient:
             await self.send("device.stop_talkback", serialNumber=serial)
         except Exception as e:  # noqa: BLE001
             log.debug("stop_talkback %s: %s", serial, e)
+
+    def login_state(self) -> dict[str, Any]:
+        return {
+            "connected": self.connected,
+            "driver_connected": self.driver_connected,
+            "needs_verify_code": self.needs_verify_code,
+            "captcha_id": self.captcha_id,
+            "captcha_image": self.captcha_image,
+            "connection_error": self.connection_error,
+            "error": self.last_error,
+        }
 
     def device_summary(self) -> list[dict[str, Any]]:
         out = []

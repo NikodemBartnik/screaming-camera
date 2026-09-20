@@ -293,9 +293,10 @@ class Engine:
             "model": {"endpoint": self.cfg.model.endpoint, "name": self.cfg.model.name,
                       "status": self.analyzer.status, "error": self.analyzer.last_error, **self.model_health},
             "tts": {"engine": self.cfg.tts.engine, "status": self.tts.status, "error": self.tts.last_error},
-            "eufy": {"enabled": self.cfg.eufy.enabled, "connected": bool(self.eufy and self.eufy.connected),
-                     "driver_connected": bool(self.eufy and self.eufy.driver_connected),
-                     "error": self.eufy.last_error if self.eufy else "",
+            "eufy": {"enabled": self.cfg.eufy.enabled,
+                     **(self.eufy.login_state() if self.eufy else
+                        {"connected": False, "driver_connected": False, "needs_verify_code": False,
+                         "captcha_id": None, "captcha_image": None, "connection_error": "", "error": ""}),
                      "devices": self.eufy.device_summary() if self.eufy else []},
             "uptime": int(time.time() - self.started_at),
             "config_version": self.config_store.version,

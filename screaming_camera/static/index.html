@@ -134,7 +134,19 @@
       <div class="form">
         <label class="check"><input type="checkbox" data-path="eufy.enabled"> Enabled</label>
         <label>WebSocket URL<input data-path="eufy.ws_url"></label>
-        <div class="row"><button class="ghost" id="list-eufy">List devices</button></div>
+        <div id="eufy-login" class="login" hidden>
+          <div id="eufy-login-msg"></div>
+          <img id="eufy-captcha" alt="captcha" hidden>
+          <div class="row">
+            <input id="eufy-code" placeholder="code" style="flex:1">
+            <button class="primary" id="eufy-send-code">Send code</button>
+          </div>
+        </div>
+        <div class="row">
+          <button class="ghost" id="list-eufy">List devices</button>
+          <button class="ghost" id="eufy-reconnect">Reconnect to Eufy cloud</button>
+          <span id="eufy-status" class="muted"></span>
+        </div>
         <pre id="eufy-devices" class="muted small"></pre>
       </div>
     </details>

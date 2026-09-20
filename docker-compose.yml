@@ -1,24 +1,30 @@
-# Eufy bridge: bropat/eufy-security-ws (Node.js). Works on amd64 (Windows/Docker Desktop) and arm64 (IQ-9075).
-#   1. copy .env.example to .env and fill in EUFY_USERNAME / EUFY_PASSWORD
-#      (use a *separate* Eufy account invited as guest to your home - the app logs out the account used here)
+# Eufy bridge: bropat/eufy-security-ws (Node.js). Runs on arm64 (IQ-9075) and amd64.
+#   1. cp .env.example .env  and fill in EUFY_USERNAME / EUFY_PASSWORD
+#      (use a *separate* Eufy account invited as admin/guest to your home - the Eufy app logs out whichever
+#       account this bridge uses, so don't use your phone's account)
 #   2. docker compose up -d
-#   3. docker compose logs -f eufy-security-ws   -> complete 2FA / captcha if asked
+#   3. open the panel -> Settings -> Eufy bridge: enter the 2FA code from e-mail / solve the captcha
+#      (or watch: docker compose logs -f eufy-security-ws)
+# network_mode: host is required for local station discovery (UDP broadcast) -> Linux only. On Windows
+# Docker Desktop replace it with `ports: ["3000:3000"]` and set STATION_IP_ADDRESSES.
 services:
   eufy-security-ws:
     image: bropat/eufy-security-ws:latest
     container_name: eufy-security-ws
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    network_mode: host
     environment:
       - USERNAME=${EUFY_USERNAME}
       - PASSWORD=${EUFY_PASSWORD}
       - COUNTRY=${EUFY_COUNTRY:-PL}
       - LANGUAGE=${EUFY_LANGUAGE:-en}
+      - PORT=3000
       - TRUSTED_DEVICE_NAME=screaming-camera
       - EVENT_DURATION_SECONDS=10
-      - P2P_CONNECTION_SETUP=0      # 0 = prefer local network
+      - P2P_CONNECTION_SETUP=2        # 2 = quickest (local first, cloud fallback), 1 = local only
       - POLLING_INTERVAL_MINUTES=10
       - ACCEPT_INVITATIONS=true
+      # - STATION_IP_ADDRESSES=T8030XXXXXXXXXXX:192.168.1.20   # optional: pin HomeBase IP (serial:ip;serial:ip)
+      # - DEBUG=1
     volumes:
       - ./data/eufy-ws:/data
