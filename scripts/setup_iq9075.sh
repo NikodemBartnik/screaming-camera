@@ -89,11 +89,17 @@ sudo systemctl enable screaming-camera
 echo ">> start with: sudo systemctl start screaming-camera   (logs: journalctl -fu screaming-camera)"
 echo ">> panel: http://$(hostname -I | awk '{print $1}'):8080"
 
+# The app plays audio through the user's PipeWire session; linger keeps that session alive at boot
+# (otherwise there is no sound until someone logs in).
+sudo loginctl enable-linger "$USER"
+
 cat <<'EOF'
 
 == Bluetooth speaker (optional)
-  bluetoothctl
-    power on ; agent on ; scan on      -> note the MAC
-    pair XX:XX:XX:XX:XX:XX ; trust XX:XX:XX:XX:XX:XX ; connect XX:XX:XX:XX:XX:XX
-  Then in the panel: Speakers -> local_audio -> device name contains e.g. "JBL", keep_alive on.
+  put the speaker in pairing mode, then:
+    bash scripts/bt_speaker.sh scan            # find its name
+    bash scripts/bt_speaker.sh pair "JBL"      # pair + trust + connect + make default output
+    bash scripts/bt_speaker.sh test            # tone through the speaker
+  Then in the panel: Speakers -> local_audio (device empty = default output), keep_alive on,
+  and tick that speaker on every camera.
 EOF
