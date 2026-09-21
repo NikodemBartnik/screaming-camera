@@ -52,9 +52,16 @@ def create_app(store: ConfigStore) -> FastAPI:
     app.state.engine = engine
 
     # ---- panel ------------------------------------------------------------------------------
+    # Cache-bust static assets with the file mtime so the panel never shows a stale app.js after an update.
+    def _asset_version() -> str:
+        return str(int(max((STATIC_DIR / n).stat().st_mtime for n in ("index.html", "app.js", "style.css"))))
+
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        v = _asset_version()
+        html = html.replace('/static/style.css"', f'/static/style.css?v={v}"').replace('/static/app.js"', f'/static/app.js?v={v}"')
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
