@@ -32,10 +32,12 @@ CREATE TABLE IF NOT EXISTS events (
     latency_ms INTEGER NOT NULL,
     model TEXT NOT NULL,
     error TEXT NOT NULL,
-    armed INTEGER NOT NULL
+    armed INTEGER NOT NULL,
+    stage INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts DESC);
 """
+MIGRATIONS = ["ALTER TABLE events ADD COLUMN stage INTEGER NOT NULL DEFAULT 0"]
 
 
 class EventStore:
@@ -49,6 +51,11 @@ class EventStore:
         self.db = await aiosqlite.connect(self.cfg.db_path)
         self.db.row_factory = aiosqlite.Row
         await self.db.executescript(SCHEMA)
+        for sql in MIGRATIONS:
+            try:
+                await self.db.execute(sql)
+            except Exception:  # noqa: BLE001 - column already exists
+                pass
         await self.db.commit()
 
     async def close(self) -> None:
@@ -71,6 +78,7 @@ class EventStore:
             "reasoning": analysis.reasoning, "message": analysis.message, "spoken": int(spoken),
             "decision": decision, "speakers": json.dumps(speakers), "snapshot": snapshot,
             "latency_ms": analysis.latency_ms, "model": analysis.model, "error": analysis.error, "armed": int(armed),
+            "stage": analysis.stage,
         }
         cols = ", ".join(row)
         marks = ", ".join("?" for _ in row)

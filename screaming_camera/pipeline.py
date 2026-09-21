@@ -87,11 +87,19 @@ class CameraWorker:
             if trigger and not self.busy:
                 self.busy = True
                 self.last_trigger_ts = frame.ts
-                frames = self.gate.recent_frames(self.engine.cfg.model.frames_per_request)
-                asyncio.create_task(self._analyze(frames, trigger), name=f"analyze-{self.cfg.id}")
+                asyncio.create_task(self._analyze(trigger), name=f"analyze-{self.cfg.id}")
 
-    async def _analyze(self, frames: list[Frame], trigger: str) -> None:
+    async def _analyze(self, trigger: str) -> None:
         try:
+            # Let the scene develop: analyse the newest frame after the configured delay, not the
+            # first frame that tripped the gate (usually someone half out of frame).
+            delay = 0.0 if trigger in ("manual", "manual test") else self.cfg.analysis_delay_seconds
+            if delay > 0:
+                self.engine.bus.publish("analyzing", {"camera_id": self.cfg.id, "trigger": trigger, "waiting": delay})
+                await asyncio.sleep(delay)
+            frames = self.gate.recent_frames(self.engine.cfg.model.frames_per_request)
+            if not frames:
+                return
             await self.engine.analyze_and_act(self.cfg, frames, trigger)
         except Exception:  # noqa: BLE001
             log.exception("camera %s: analysis failed", self.cfg.id)
@@ -185,6 +193,8 @@ class Engine:
     async def apply_config(self, new_cfg: AppConfig) -> None:
         """Persist and hot-apply. Prompt/policy/model/tts update in place; cameras/speakers/eufy restart."""
         old = self.cfg
+        if old.policy.armed != new_cfg.policy.armed:
+            await self._sync_guard_mode(new_cfg)
         self.config_store.update(new_cfg)
         self.analyzer.update(new_cfg.model, new_cfg.prompt)
         self.policy.update(new_cfg.policy)
@@ -195,6 +205,18 @@ class Engine:
             await self._start_io()
         self.bus.publish("config", {"version": self.config_store.version, "io_restarted": io_changed})
         self.bus.publish("state", self.state())
+
+    async def _sync_guard_mode(self, cfg: AppConfig) -> None:
+        """Optionally put every HomeBase into a security mode when arming / disarming."""
+        mode_name = cfg.eufy.guard_mode_on_arm if cfg.policy.armed else cfg.eufy.guard_mode_on_disarm
+        if not mode_name or not self.eufy or not self.eufy.driver_connected:
+            return
+        for serial in list(self.eufy.stations):
+            try:
+                await self.eufy.set_guard_mode(serial, mode_name)
+                log.info("eufy station %s -> guard mode %s (%s)", serial, mode_name, "armed" if cfg.policy.armed else "disarmed")
+            except Exception as e:  # noqa: BLE001
+                log.warning("eufy station %s: set_guard_mode %s failed: %s", serial, mode_name, e)
 
     async def _housekeeping(self) -> None:
         last_cleanup = 0.0

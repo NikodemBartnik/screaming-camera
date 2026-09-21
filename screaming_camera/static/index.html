@@ -99,6 +99,10 @@
           <label>Frames per request<input type="number" min="1" max="4" data-path="model.frames_per_request"></label>
           <label>Timeout (s)<input type="number" data-path="model.timeout_seconds"></label>
         </div>
+        <div class="row">
+          <label class="check"><input type="checkbox" data-path="model.two_stage"> Two-stage: quick verdict first (~1.5 s), full description + message only when needed</label>
+          <label>Describe when threat ≥<input type="number" min="0" max="10" data-path="model.describe_min_threat"></label>
+        </div>
         <label>Extra request fields (JSON, OpenAI flavour only)<input data-path="model.extra_body" data-json="1" placeholder='{"reasoning_effort": "none"}'></label>
         <div class="row"><button class="ghost" id="check-model">Check connection</button><span id="model-check" class="muted"></span></div>
       </div>
@@ -141,6 +145,10 @@
             <input id="eufy-code" placeholder="code" style="flex:1">
             <button class="primary" id="eufy-send-code">Send code</button>
           </div>
+        </div>
+        <div class="row">
+          <label>HomeBase mode when ARMED<select data-path="eufy.guard_mode_on_arm"><option value="">don't change</option><option value="away">Away</option><option value="home">Home</option><option value="schedule">Schedule</option><option value="geo">Geofencing</option><option value="custom1">Custom 1</option><option value="custom2">Custom 2</option><option value="custom3">Custom 3</option></select></label>
+          <label>HomeBase mode when DISARMED<select data-path="eufy.guard_mode_on_disarm"><option value="">don't change</option><option value="home">Home</option><option value="disarmed">Disarmed</option><option value="away">Away</option><option value="schedule">Schedule</option><option value="geo">Geofencing</option><option value="custom1">Custom 1</option><option value="custom2">Custom 2</option><option value="custom3">Custom 3</option></select></label>
         </div>
         <div class="row">
           <button class="ghost" id="list-eufy">List devices</button>

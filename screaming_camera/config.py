@@ -31,6 +31,11 @@ class ModelConfig(BaseModel):
     max_tokens: int = 400
     timeout_seconds: float = 120.0
     frames_per_request: int = 1  # >1 sends the last N gate-selected frames (motion context)
+    # Generation speed (~13 tok/s on the IQ-9075 NPU) dominates latency, not image size. Two-stage mode
+    # asks for a 15-token verdict first (~1.5 s) and only writes the full description + message when the
+    # threat level reaches describe_min_threat (~4-5 s more).
+    two_stage: bool = True
+    describe_min_threat: int = 5
 
 
 class CameraConfig(BaseModel):
@@ -50,6 +55,9 @@ class CameraConfig(BaseModel):
     fps: float = 2.0  # frames per second handed to the motion gate
     motion_sensitivity: float = 0.02  # fraction of changed pixels that counts as motion
     event_hold_seconds: float = 20.0  # eufy: keep the livestream alive this long after the trigger
+    # Wait this long after a trigger before grabbing the frame to analyse - lets the person actually
+    # enter the frame and do something instead of analysing the first blurry edge-of-frame moment.
+    analysis_delay_seconds: float = 3.0
     speakers: list[str] = Field(default_factory=list)
 
 
@@ -72,6 +80,11 @@ class SpeakerConfig(BaseModel):
 class EufyConfig(BaseModel):
     enabled: bool = False
     ws_url: str = "ws://127.0.0.1:3000"
+    # Motion events reach the bridge as Eufy push notifications, which depend on the HomeBase security
+    # mode. Optionally switch every HomeBase to a mode when arming and back when disarming:
+    # "" = don't touch, or one of away / home / disarmed / schedule / geo / custom1 / custom2 / custom3.
+    guard_mode_on_arm: str = ""
+    guard_mode_on_disarm: str = ""
 
 
 class ScheduleWindow(BaseModel):

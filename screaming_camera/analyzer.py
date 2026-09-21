@@ -39,30 +39,54 @@ class Analysis(BaseModel):
     latency_ms: int = 0
     model: str = ""
     error: str = ""
+    stage: int = 0  # 0 = single call, 1 = classified only, 2 = classified + described
 
 
-SCHEMA_HINT = """Respond with ONLY a JSON object, no markdown, in exactly this shape:
-{
-  "threat_level": <integer 0-10, 0 = nothing/harmless, 10 = crime in progress>,
-  "scene": "<one sentence: what is happening>",
-  "people": [{"clothing": "<colours and garments>", "action": "<what they are doing>", "carrying": "<objects or empty>"}],
-  "reasoning": "<one short sentence why you chose this threat level>",
-  "message": "<what to say through the loudspeaker, or empty string if nothing should be said>"
-}"""
+# Every output token costs ~75 ms on the board's NPU, so both schemas are as terse as possible and the
+# model is told to minify: no pretty-printing, no prose, no reasoning field.
+SCHEMA_HINT = (
+    'Respond with ONLY a minified JSON object on one line, no markdown, no spaces or newlines, exactly: '
+    '{"threat_level":<integer 0-10, 0 = harmless, 10 = crime in progress>,'
+    '"scene":"<max 8 words>",'
+    '"people":[{"clothing":"<colours and garments>","action":"<what they do>","carrying":"<object or empty>"}],'
+    '"message":"<loudspeaker message, or empty string>"}'
+)
+
+CLASSIFY_HINT = (
+    'Respond with ONLY a minified JSON object on one line, no markdown, no spaces or newlines, exactly: '
+    '{"threat_level":<integer 0-10, 0 = harmless, 10 = crime in progress>,"scene":"<max 8 words>"}'
+)
+
+
+def _context(p: PromptConfig) -> list[str]:
+    return [
+        f"WATCH FOR (suspicious, raise threat_level): {p.watch_for.strip()}",
+        f"IGNORE (harmless, keep threat_level low): {p.ignore.strip()}",
+    ]
+
+
+def build_classify_prompt(p: PromptConfig) -> str:
+    """Stage 1: cheap verdict (~15 output tokens)."""
+    parts = ["You are the AI security guard of a private house watching a camera frame."]
+    parts += _context(p)
+    if p.extra_instructions.strip():
+        parts.append(f"ADDITIONAL INSTRUCTIONS: {p.extra_instructions.strip()}")
+    parts.append(CLASSIFY_HINT)
+    return "\n".join(parts)
 
 
 def build_system_prompt(p: PromptConfig) -> str:
-    parts = [
-        p.persona.strip(),
-        f"\nWATCH FOR (suspicious, raise threat_level): {p.watch_for.strip()}",
-        f"\nIGNORE (harmless, keep threat_level low, empty message): {p.ignore.strip()}",
-        f"\nMESSAGE STYLE: {p.message_style.strip()} Maximum {p.max_message_words} words. "
+    """Stage 2 (or single-stage): description + loudspeaker message."""
+    parts = [p.persona.strip()]
+    parts += _context(p)
+    parts.append(
+        f"MESSAGE STYLE: {p.message_style.strip()} Maximum {p.max_message_words} words. "
         f"Write the message in {p.language}. Only write a message when threat_level is 5 or higher; "
-        "otherwise leave it empty.",
-    ]
+        "otherwise leave it empty."
+    )
     if p.extra_instructions.strip():
-        parts.append(f"\nADDITIONAL INSTRUCTIONS: {p.extra_instructions.strip()}")
-    parts.append("\n" + SCHEMA_HINT)
+        parts.append(f"ADDITIONAL INSTRUCTIONS: {p.extra_instructions.strip()}")
+    parts.append(SCHEMA_HINT)
     return "\n".join(parts)
 
 
@@ -161,9 +185,10 @@ class Analyzer:
             self.last_error = str(e)
             return {"ok": False, "error": str(e)}
 
-    def _request(self, images: list[np.ndarray], user_text: str) -> tuple[str, dict[str, Any]]:
+    def _request(self, images: list[np.ndarray], user_text: str, system: str,
+                 max_tokens: int | None = None) -> tuple[str, dict[str, Any]]:
         """(url, json payload) for the configured API flavour."""
-        system = build_system_prompt(self.prompt)
+        max_tokens = max_tokens or self.model.max_tokens
         encoded = [encode_image(img, self.model.max_image_side, self.model.jpeg_quality) for img in images]
         if self.model.api == "ollama":
             payload = {
@@ -174,7 +199,7 @@ class Analyzer:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_text, "images": [e.split(",", 1)[1] for e in encoded]},
                 ],
-                "options": {"temperature": self.model.temperature, "num_predict": self.model.max_tokens},
+                "options": {"temperature": self.model.temperature, "num_predict": max_tokens},
             }
             return f"{self._base}/api/chat", payload
         content: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": e}} for e in encoded]
@@ -183,22 +208,14 @@ class Analyzer:
             "model": self.model.name,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
             "temperature": self.model.temperature,
-            "max_tokens": self.model.max_tokens,
+            "max_tokens": max_tokens,
             "stream": False,
             **(self.model.extra_body or {}),
         }
         return f"{self._base}/chat/completions", payload
 
-    async def analyze(self, images: list[np.ndarray], camera_name: str, trigger: str,
-                      context: str = "") -> Analysis:
-        when = time.strftime("%A %H:%M")
-        user_text = (
-            f"Camera: {camera_name}. Trigger: {trigger}. Local time: {when}. "
-            + (f"{context} " if context else "")
-            + (f"You get {len(images)} consecutive frames, oldest first. " if len(images) > 1 else "")
-            + "Analyse the frame(s) and answer with the JSON object."
-        )
-        url, payload = self._request(images, user_text)
+    async def _call(self, images: list[np.ndarray], user_text: str, system: str, max_tokens: int | None) -> Analysis:
+        url, payload = self._request(images, user_text, system, max_tokens)
         t0 = time.perf_counter()
         try:
             r = await self.client.post(url, headers=self._headers(), json=payload)
@@ -219,3 +236,31 @@ class Analyzer:
         analysis.latency_ms = int((time.perf_counter() - t0) * 1000)
         analysis.model = self.model.name
         return analysis
+
+    async def analyze(self, images: list[np.ndarray], camera_name: str, trigger: str,
+                      context: str = "") -> Analysis:
+        when = time.strftime("%A %H:%M")
+        user_text = (
+            f"Camera: {camera_name}. Trigger: {trigger}. Local time: {when}. "
+            + (f"{context} " if context else "")
+            + (f"You get {len(images)} consecutive frames, oldest first. " if len(images) > 1 else "")
+            + "Analyse the frame(s) and answer with the JSON object."
+        )
+        if not self.model.two_stage:
+            return await self._call(images, user_text, build_system_prompt(self.prompt), None)
+
+        # Stage 1: verdict only (~15 tokens). Stage 2 only when it is worth 4-5 s of generation.
+        first = await self._call(images, user_text, build_classify_prompt(self.prompt), 40)
+        if first.error or first.threat_level < self.model.describe_min_threat:
+            first.stage = 1
+            return first
+        second = await self._call(images, user_text, build_system_prompt(self.prompt), None)
+        if second.error:
+            first.stage = 1
+            first.latency_ms += second.latency_ms
+            return first
+        second.stage = 2
+        second.scene = second.scene or first.scene
+        second.latency_ms += first.latency_ms
+        second.raw = first.raw + "\n---\n" + second.raw
+        return second

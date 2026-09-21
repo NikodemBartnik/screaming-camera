@@ -22,6 +22,8 @@ import websockets
 log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 21
+GUARD_MODES = {"away": 0, "home": 1, "schedule": 2, "custom1": 3, "custom2": 4, "custom3": 5, "off": 6,
+               "geo": 47, "disarmed": 63}
 EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
@@ -257,6 +259,10 @@ class EufyWsClient:
             raise RuntimeError("no captcha pending")
         await self.send("driver.set_captcha", captchaId=self.captcha_id, captcha=code.strip())
         self.captcha_id = self.captcha_image = None
+
+    async def set_guard_mode(self, station_serial: str, mode: str | int) -> None:
+        value = GUARD_MODES[mode.lower()] if isinstance(mode, str) else int(mode)
+        await self.send("station.set_guard_mode", serialNumber=station_serial, mode=value)
 
     async def connect_driver(self) -> None:
         await self.send("driver.connect", timeout=30)

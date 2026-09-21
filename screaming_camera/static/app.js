@@ -100,7 +100,7 @@ function threatClass(t) { return t >= 7 ? "t-high" : t >= 4 ? "t-mid" : "t-low";
 function renderLatest(ev) {
   const el = $("#latest"); el.classList.remove("empty");
   el.innerHTML = `<div><img src="/api/snapshots/${ev.snapshot}" alt=""></div><div>
-    <div class="line1 muted small">${fmtTime(ev.ts)} · ${esc(ev.camera_name)} · trigger: ${esc(ev.trigger)} · ${ev.latency_ms} ms model</div>
+    <div class="line1 muted small">${fmtTime(ev.ts)} · ${esc(ev.camera_name)} · trigger: ${esc(ev.trigger)} · ${ev.latency_ms} ms model${ev.stage ? " (stage " + ev.stage + ")" : ""}</div>
     <div class="msg ${ev.spoken ? "" : "quiet"}">${ev.spoken ? "🔊 " : ""}${esc(ev.message || (ev.error ? "⚠ " + ev.error : "(nothing to say)"))}</div>
     <div class="threat ${threatClass(ev.threat_level)}"><b>${ev.threat_level}</b> threat level · <span class="muted">${esc(ev.decision)}</span></div>
     <div class="people">${(ev.people || []).map((p) => `<span class="person">👤 ${esc(p.clothing)} — ${esc(p.action)}${p.carrying ? " · " + esc(p.carrying) : ""}</span>`).join("")}</div>
@@ -152,7 +152,7 @@ function connectWs() {
       if ($("#tab-events").classList.contains("active")) $("#events").prepend(eventRow(data));
       showBanner(data.spoken ? `🔊 ${data.camera_name}: “${data.message}”` : `${data.camera_name}: threat ${data.threat_level} — ${data.scene}`, data.spoken);
     }
-    if (type === "analyzing") showBanner(`Analysing ${data.camera_id} (${data.trigger})…`);
+    if (type === "analyzing") showBanner(data.waiting ? `${data.camera_id}: ${data.trigger} detected, waiting ${data.waiting}s for the scene to develop…` : `Analysing ${data.camera_id} (${data.trigger})…`);
     if (type === "speaking") showBanner(`🔊 Speaking on ${data.speakers.join(", ")}: “${data.text}”`, true);
     if (type === "config" && data.io_restarted) toast("Config applied, cameras restarted");
   };
@@ -216,7 +216,7 @@ const CAMERA_FIELDS = {
   eufy_p2p: [["serial", "Eufy device serial"], ["event_hold_seconds", "Keep stream alive after event (s)", "number"]],
   webcam: [["device_index", "Device index", "number"]],
   file: [["path", "Video file or image folder"]],
-  analysis: [["fps", "Frames/s to gate", "number"], ["motion_sensitivity", "Motion sensitivity (0.005 sensitive – 0.1 lazy)", "number"]],
+  analysis: [["fps", "Frames/s to gate", "number"], ["motion_sensitivity", "Motion sensitivity (0.005 sensitive – 0.1 lazy)", "number"], ["analysis_delay_seconds", "Wait after trigger before analysing (s)", "number"]],
 };
 const SPEAKER_FIELDS = {
   common: [["id", "ID"], ["name", "Name"], ["type", "Type", "select", ["local_audio", "eufy_talkback", "remote_agent"]], ["enabled", "Enabled", "checkbox"], ["volume", "Volume (0–1.5)", "number"]],
@@ -265,7 +265,7 @@ function renderSaySpeakers() {
   const box = $("#say-speakers"); box.innerHTML = "";
   config.speakers.forEach((s) => { const l = document.createElement("label"); l.innerHTML = `<input type="checkbox" value="${esc(s.id)}" checked> ${esc(s.name || s.id)}`; box.appendChild(l); });
 }
-$("#add-camera").addEventListener("click", () => { config.cameras.push({ id: "cam" + (config.cameras.length + 1), name: "", type: "rtsp", enabled: true, url: "", device_index: 0, path: "", serial: "", fps: 2, motion_sensitivity: 0.02, event_hold_seconds: 20, speakers: [] }); renderCameraCards(); markDirty(); });
+$("#add-camera").addEventListener("click", () => { config.cameras.push({ id: "cam" + (config.cameras.length + 1), name: "", type: "rtsp", enabled: true, url: "", device_index: 0, path: "", serial: "", fps: 2, motion_sensitivity: 0.02, event_hold_seconds: 20, analysis_delay_seconds: 3, speakers: [] }); renderCameraCards(); markDirty(); });
 $("#add-speaker").addEventListener("click", () => { config.speakers.push({ id: "spk" + (config.speakers.length + 1), name: "", type: "local_audio", enabled: true, device: "", keep_alive: false, serial: "", url: "", volume: 1 }); renderSpeakerCards(); renderCameraCards(); renderSaySpeakers(); markDirty(); });
 
 $("#check-model").addEventListener("click", async () => {
