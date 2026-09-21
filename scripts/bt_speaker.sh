@@ -79,6 +79,15 @@ EOF
     # systemd timer: reconnect the remembered speaker every 30 s if it dropped (power cycle, out of range)
     mac=$(cat "$STATE_FILE" 2>/dev/null || true)
     [ -n "$mac" ] || { echo "!! pair a speaker first"; exit 1; }
+    sudo tee /usr/local/bin/bt-speaker-reconnect >/dev/null <<'EOF2'
+#!/bin/bash
+mac="$1"
+bluetoothctl info "$mac" | grep -q "Connected: yes" || bluetoothctl connect "$mac" >/dev/null 2>&1
+sink=$(pactl list short sinks 2>/dev/null | awk '/bluez_output/{print $2}' | head -1)
+if [ -n "$sink" ] && [ "$(pactl get-default-sink)" != "$sink" ]; then pactl set-default-sink "$sink"; fi
+exit 0
+EOF2
+    sudo chmod +x /usr/local/bin/bt-speaker-reconnect
     sudo tee /etc/systemd/system/bt-speaker.service >/dev/null <<EOF2
 [Unit]
 Description=Reconnect Bluetooth speaker $mac
@@ -86,7 +95,7 @@ Description=Reconnect Bluetooth speaker $mac
 Type=oneshot
 User=$USER
 Environment=XDG_RUNTIME_DIR=/run/user/$(id -u)
-ExecStart=/bin/bash -c 'bluetoothctl info $mac | grep -q "Connected: yes" || bluetoothctl connect $mac; sink=\$(pactl list short sinks | awk "/bluez_output/{print \$2}" | head -1); [ -n "\$sink" ] && pactl set-default-sink "\$sink" || true'
+ExecStart=/usr/local/bin/bt-speaker-reconnect $mac
 EOF2
     sudo tee /etc/systemd/system/bt-speaker.timer >/dev/null <<EOF2
 [Unit]
