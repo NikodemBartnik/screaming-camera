@@ -44,12 +44,14 @@ class Analysis(BaseModel):
 
 # Every output token costs ~75 ms on the board's NPU, so both schemas are as terse as possible and the
 # model is told to minify: no pretty-printing, no prose, no reasoning field.
+# "message" comes right after the verdict: it is the field that matters and the model commits to it
+# before spending tokens on descriptions.
 SCHEMA_HINT = (
     'Respond with ONLY a minified JSON object on one line, no markdown, no spaces or newlines, exactly: '
     '{"threat_level":<integer 0-10, 0 = harmless, 10 = crime in progress>,'
-    '"scene":"<max 8 words>",'
+    '"message":"<if threat_level>=5: what to say through the loudspeaker to the person, else empty string>",'
     '"people":[{"clothing":"<colours and garments>","action":"<what they do>","carrying":"<object or empty>"}],'
-    '"message":"<loudspeaker message, or empty string>"}'
+    '"scene":"<max 8 words>"}'
 )
 
 CLASSIFY_HINT = (
@@ -81,8 +83,7 @@ def build_system_prompt(p: PromptConfig) -> str:
     parts += _context(p)
     parts.append(
         f"MESSAGE STYLE: {p.message_style.strip()} Maximum {p.max_message_words} words. "
-        f"Write the message in {p.language}. Only write a message when threat_level is 5 or higher; "
-        "otherwise leave it empty."
+        f"Write the message in {p.language}."
     )
     if p.extra_instructions.strip():
         parts.append(f"ADDITIONAL INSTRUCTIONS: {p.extra_instructions.strip()}")

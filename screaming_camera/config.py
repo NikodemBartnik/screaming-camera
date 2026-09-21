@@ -124,7 +124,7 @@ class PromptConfig(BaseModel):
     )
     language: str = "English"
     extra_instructions: str = ""
-    max_message_words: int = 35
+    max_message_words: int = 25  # each word is ~1.3 tokens at ~13 tok/s on the board
 
 
 class TTSConfig(BaseModel):
