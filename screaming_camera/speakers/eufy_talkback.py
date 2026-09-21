@@ -24,7 +24,7 @@ AAC_BITRATE = 20000  # higher bitrates stutter on Eufy devices (eufy-security-cl
 FRAME_SECONDS = 1024 / AAC_RATE  # one AAC frame = 64 ms; the P2P layer stamps every write() as one frame
 
 
-def wav_to_adts(wav: bytes, volume: float = 1.0) -> list[bytes]:
+def wav_to_adts(wav: bytes, volume: float = 1.0, channels: int = 1) -> list[bytes]:
     """Return a list of ADTS packets (one per AAC frame, 1024 samples each)."""
     with wave.open(io.BytesIO(wav), "rb") as w:
         rate, ch, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
@@ -39,12 +39,13 @@ def wav_to_adts(wav: bytes, volume: float = 1.0) -> list[bytes]:
 
     frame = av.AudioFrame.from_ndarray(pcm.T.copy(), format="s16", layout="mono")
     frame.sample_rate = rate
-    resampler = av.AudioResampler(format="fltp", layout="mono", rate=AAC_RATE)
+    layout = "stereo" if channels == 2 else "mono"
+    resampler = av.AudioResampler(format="fltp", layout=layout, rate=AAC_RATE)
 
     out = io.BytesIO()
     container = av.open(out, mode="w", format="adts")
     try:
-        stream = container.add_stream("aac", rate=AAC_RATE, layout="mono")
+        stream = container.add_stream("aac", rate=AAC_RATE, layout=layout)
         stream.bit_rate = AAC_BITRATE
         for rf in resampler.resample(frame) + resampler.resample(None):
             for packet in stream.encode(rf):
@@ -79,7 +80,7 @@ class EufyTalkbackSpeaker(Speaker):
         self._lock = asyncio.Lock()
 
     async def play(self, wav: bytes) -> None:
-        packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume)
+        packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume, self.cfg.channels)
         duration = len(packets) * FRAME_SECONDS
         started_here = False
         async with self._lock:

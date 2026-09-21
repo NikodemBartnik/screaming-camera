@@ -63,6 +63,7 @@ class SpeakerConfig(BaseModel):
     keep_alive: bool = False  # play near-silence periodically so Bluetooth speakers do not sleep
     # eufy_talkback
     serial: str = ""
+    channels: int = 1  # AAC channels for talkback: 1 = mono (most cams), 2 = stereo (some doorbells need it)
     # remote_agent: http://host:port of scripts/speaker_agent.py
     url: str = ""
     volume: float = 1.0

@@ -221,7 +221,7 @@ const CAMERA_FIELDS = {
 const SPEAKER_FIELDS = {
   common: [["id", "ID"], ["name", "Name"], ["type", "Type", "select", ["local_audio", "eufy_talkback", "remote_agent"]], ["enabled", "Enabled", "checkbox"], ["volume", "Volume (0–1.5)", "number"]],
   local_audio: [["device", "Output device name contains (empty = default)"], ["keep_alive", "Keep-alive (Bluetooth)", "checkbox"]],
-  eufy_talkback: [["serial", "Eufy device serial"]],
+  eufy_talkback: [["serial", "Eufy device serial"], ["channels", "AAC channels (1 mono / 2 stereo)", "number"]],
   remote_agent: [["url", "Agent URL (http://host:8181)"]],
 };
 function fieldEl(obj, [key, label, kind, options], rerender) {
