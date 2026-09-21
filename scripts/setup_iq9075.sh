@@ -92,6 +92,15 @@ echo ">> panel: http://$(hostname -I | awk '{print $1}'):8080"
 # The app plays audio through the user's PipeWire session; linger keeps that session alive at boot
 # (otherwise there is no sound until someone logs in).
 sudo loginctl enable-linger "$USER"
+# Ubuntu Desktop's login screen (GDM) runs its own PipeWire on the physical seat and grabs Bluetooth
+# audio, leaving the headless session with "unknown transport". Disable Bluetooth in GDM's WirePlumber.
+if id gdm >/dev/null 2>&1; then
+  sudo mkdir -p /var/lib/gdm3/.config/wireplumber/bluetooth.lua.d
+  printf '%s
+' "bluez_monitor.enabled = false" "bluez_midi_monitor.enabled = false"     | sudo tee /var/lib/gdm3/.config/wireplumber/bluetooth.lua.d/51-disable-bluetooth.lua >/dev/null
+  sudo chown -R gdm:gdm /var/lib/gdm3/.config
+  sudo -u gdm XDG_RUNTIME_DIR=/run/user/$(id -u gdm) systemctl --user restart wireplumber 2>/dev/null || true
+fi
 
 cat <<'EOF'
 
@@ -100,6 +109,7 @@ cat <<'EOF'
     bash scripts/bt_speaker.sh scan            # find its name
     bash scripts/bt_speaker.sh pair "JBL"      # pair + trust + connect + make default output
     bash scripts/bt_speaker.sh test            # tone through the speaker
+    bash scripts/bt_speaker.sh autoconnect     # reconnect automatically after reboots / power cycles
   Then in the panel: Speakers -> local_audio (device empty = default output), keep_alive on,
   and tick that speaker on every camera.
 EOF
