@@ -28,8 +28,9 @@ class ArmRequest(BaseModel):
 
 
 class SpeakRequest(BaseModel):
-    text: str
+    text: str = ""
     speakers: list[str]
+    tone: bool = False  # play a 2 s beep instead of TTS - isolates the speaker path from TTS
 
 
 class CodeRequest(BaseModel):
@@ -148,7 +149,7 @@ def create_app(store: ConfigStore) -> FastAPI:
 
     @app.post("/api/test/speak")
     async def test_speak(req: SpeakRequest):
-        ok = await engine.speak(req.text, req.speakers)
+        ok = await engine.play_tone(req.speakers) if req.tone else await engine.speak(req.text, req.speakers)
         return {"ok": ok, "speakers": {s: engine.speakers[s].status for s in req.speakers if s in engine.speakers}}
 
     @app.get("/api/audio/devices")

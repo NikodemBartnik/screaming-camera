@@ -185,6 +185,9 @@ class EufyWsClient:
         if mtype == "event":
             ev = msg.get("event", {})
             source, name = ev.get("source"), ev.get("event")
+            if name not in ("livestream video data", "livestream audio data"):
+                extra = {k: v for k, v in ev.items() if k not in ("source", "event", "captcha")}
+                log.info("eufy event %s:%s %s", source, name, json.dumps(extra, ensure_ascii=False)[:200])
             if source == "driver":
                 self._spawn(self._on_driver_event(name, ev), f"driver:{name}")
             if source == "device" and name == "property changed" and ev.get("serialNumber") in self.devices:

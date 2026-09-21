@@ -78,6 +78,7 @@ class EufyP2PSource(CameraSource):
         self._loop = asyncio.get_running_loop()
         for name in TRIGGER_EVENTS:
             self.client.on("device", name, self._on_trigger)
+        self.client.on("device", "property changed", self._on_property)
         self.client.on("device", "livestream started", self._on_started)
         self.client.on("device", "livestream video data", self._on_video)
         self.client.on("device", "livestream stopped", self._on_stopped)
@@ -113,6 +114,8 @@ class EufyP2PSource(CameraSource):
         if ev.get("serialNumber") != self.cfg.serial or ev.get("state") is False:
             return
         label = TRIGGER_EVENTS.get(ev.get("event", ""), ev.get("event", "event"))
+        if self._reader is not None and self._pending_trigger is None and label != "manual":
+            log.info("camera %s: %s while streaming (hold extended)", self.cfg.id, label)
         self._hold_until = time.monotonic() + self.cfg.event_hold_seconds
         self._pending_trigger = label
         if self._reader is None and not self._starting:
@@ -127,6 +130,17 @@ class EufyP2PSource(CameraSource):
                 self.status = "error"
                 log.warning("camera %s: start_livestream failed: %s", self.cfg.id, e)
                 self._starting = False
+
+    async def _on_property(self, ev: dict[str, Any]) -> None:
+        """Some firmware/bridge versions only report motion as a property change."""
+        if ev.get("serialNumber") != self.cfg.serial or ev.get("value") is not True:
+            return
+        name = str(ev.get("name", ""))
+        label = {"motionDetected": "motion", "personDetected": "person", "ringing": "ring",
+                 "strangerPersonDetected": "stranger", "vehicleDetected": "vehicle",
+                 "packageDelivered": "package", "packageTaken": "package_taken"}.get(name)
+        if label:
+            await self._on_trigger({"serialNumber": self.cfg.serial, "event": label, "state": True})
 
     def _on_started(self, ev: dict[str, Any]) -> None:
         if ev.get("serialNumber") != self.cfg.serial:

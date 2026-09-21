@@ -20,8 +20,8 @@ from .base import Speaker
 log = logging.getLogger(__name__)
 
 AAC_RATE = 16000
-AAC_BITRATE = 32000
-CHUNK_SECONDS = 0.25
+AAC_BITRATE = 20000  # higher bitrates stutter on Eufy devices (eufy-security-client issue #153)
+FRAME_SECONDS = 1024 / AAC_RATE  # one AAC frame = 64 ms; the P2P layer stamps every write() as one frame
 
 
 def wav_to_adts(wav: bytes, volume: float = 1.0) -> list[bytes]:
@@ -80,8 +80,7 @@ class EufyTalkbackSpeaker(Speaker):
 
     async def play(self, wav: bytes) -> None:
         packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume)
-        frames_per_chunk = max(int(CHUNK_SECONDS * AAC_RATE / 1024), 1)
-        duration = len(packets) * 1024 / AAC_RATE
+        duration = len(packets) * FRAME_SECONDS
         started_here = False
         async with self._lock:
             try:
@@ -89,12 +88,18 @@ class EufyTalkbackSpeaker(Speaker):
                 self.client.hold_stream(self.cfg.serial, duration + 20)
                 started_here = await self.client.ensure_livestream(self.cfg.serial)
                 await self.client.start_talkback(self.cfg.serial)  # returns once the station confirmed
-                await asyncio.sleep(0.2)
-                for i in range(0, len(packets), frames_per_chunk):
-                    chunk = b"".join(packets[i:i + frames_per_chunk])
-                    await self.client.talkback_audio_data(self.cfg.serial, chunk)
-                    await asyncio.sleep(CHUNK_SECONDS * 0.9)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
+                # Exactly one ADTS frame per command, paced in real time: eufy-security-client wraps each
+                # write() in a frame header with a 64 ms timestamp step, so bigger chunks break playback.
+                loop = asyncio.get_running_loop()
+                t0 = loop.time()
+                for i, frame in enumerate(packets):
+                    await self.client.talkback_audio_data(self.cfg.serial, frame)
+                    delay = t0 + (i + 1) * FRAME_SECONDS - loop.time()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                await asyncio.sleep(0.8)  # let the device drain its buffer before closing the session
+                log.info("talkback %s: sent %d AAC frames (%.1fs)", self.cfg.id, len(packets), duration)
                 self.status = "ok"
                 self.last_error = ""
             except Exception as e:  # noqa: BLE001

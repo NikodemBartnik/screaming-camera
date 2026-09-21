@@ -238,16 +238,35 @@ class Engine:
 
     async def speak(self, text: str, speaker_ids: list[str]) -> bool:
         """Synthesize once, play on all listed speakers concurrently. Returns True if any speaker played."""
-        targets = [self.speakers[s] for s in speaker_ids if s in self.speakers]
-        if not targets:
-            log.warning("no active speakers among %s", speaker_ids)
-            return False
         try:
             wav = await self.tts.synthesize(text)
         except Exception as e:  # noqa: BLE001
             log.error("TTS failed: %s", e)
             return False
-        self.bus.publish("speaking", {"text": text, "speakers": [t.cfg.id for t in targets]})
+        return await self._play(wav, text, speaker_ids)
+
+    async def play_tone(self, speaker_ids: list[str], seconds: float = 2.0) -> bool:
+        """Beep (two alternating tones) - tests the speaker path without TTS."""
+        import io
+        import wave
+        rate = 16000
+        t = np.arange(int(rate * seconds)) / rate
+        freq = np.where((t * 4).astype(int) % 2 == 0, 880.0, 660.0)
+        pcm = (np.sin(2 * np.pi * freq * t) * 0.6 * 32767).astype(np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(pcm.tobytes())
+        return await self._play(buf.getvalue(), "(test tone)", speaker_ids)
+
+    async def _play(self, wav: bytes, label: str, speaker_ids: list[str]) -> bool:
+        targets = [self.speakers[s] for s in speaker_ids if s in self.speakers]
+        if not targets:
+            log.warning("no active speakers among %s", speaker_ids)
+            return False
+        self.bus.publish("speaking", {"text": label, "speakers": [t.cfg.id for t in targets]})
         results = await asyncio.gather(*(t.play(wav) for t in targets), return_exceptions=True)
         ok = False
         for t, r in zip(targets, results):

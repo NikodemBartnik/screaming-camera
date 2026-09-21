@@ -62,7 +62,7 @@ function renderCameras(cams) {
         <span class="badge"></span><span class="busy" hidden>ANALYSING</span></div>
         <div class="meta"><span class="name"></span><span class="type"></span><span class="spacer"></span><span class="fps muted small"></span></div>
         <div class="motion"><i></i></div>
-        <div class="actions"><button data-act="analyze">Analyse now</button><button data-act="trigger">Wake / trigger</button><button data-act="say">Test speaker</button></div>`;
+        <div class="actions"><button data-act="analyze">Analyse now</button><button data-act="trigger">Wake / trigger</button><button data-act="say">Test voice</button><button data-act="beep">Beep</button></div>`;
       el.addEventListener("click", (e) => camAction(c.id, e.target.dataset.act));
       grid.appendChild(el);
     }
@@ -81,11 +81,13 @@ async function camAction(id, act) {
   try {
     if (act === "analyze") { toast("Analysing…"); const ev = await api(`/api/test/analyze?camera_id=${id}`, { method: "POST" }); renderLatest(ev); toast(`Threat ${ev.threat_level}: ${ev.scene}`); }
     if (act === "trigger") { await api(`/api/cameras/${id}/trigger`, { method: "POST" }); toast("Triggered"); }
-    if (act === "say") {
+    if (act === "say" || act === "beep") {
       const cam = state.cameras.find((c) => c.id === id);
       if (!cam.speakers.length) return toast("No speakers assigned to this camera", true);
-      const r = await api("/api/test/speak", { method: "POST", body: JSON.stringify({ text: "This is a test of the security system. You are on camera.", speakers: cam.speakers }) });
-      toast(r.ok ? "Played" : "Playback failed on all speakers", !r.ok);
+      toast(act === "beep" ? "Sending a 2 s beep (Eufy: wakes the camera first, ~5-10 s)" : "Synthesizing and sending (Eufy: ~10 s)");
+      const r = await api("/api/test/speak", { method: "POST", body: JSON.stringify({ text: "This is a test of the security system. You are on camera.", speakers: cam.speakers, tone: act === "beep" }) });
+      const failed = Object.entries(r.speakers).filter(([, st]) => st !== "ok").map(([n]) => n);
+      toast(r.ok ? "Sent OK on " + Object.keys(r.speakers).join(", ") + (failed.length ? " (failed: " + failed.join(", ") + ")" : "") : "Playback failed: " + JSON.stringify(r.speakers), !r.ok);
     }
   } catch (e) { toast(e.message, true); }
 }
