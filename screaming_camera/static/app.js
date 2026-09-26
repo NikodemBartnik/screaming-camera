@@ -212,7 +212,7 @@ $("#add-window").addEventListener("click", () => { config.policy.schedule.push({
 /* generic card editor for cameras / speakers */
 const CAMERA_FIELDS = {
   common: [["id", "ID (unique, no spaces)"], ["name", "Name"], ["type", "Type", "select", ["rtsp", "eufy_p2p", "webcam", "file"]], ["enabled", "Enabled", "checkbox"]],
-  rtsp: [["url", "RTSP URL (rtsp://user:pass@ip/stream1)"]],
+  rtsp: [["url", "RTSP URL - Tapo: rtsp://IP:554/stream2 · Eufy: rtsp://IP/live0"], ["username", "Username (Tapo: camera account)"], ["password", "Password", "password"]],
   eufy_p2p: [["serial", "Eufy device serial"], ["event_hold_seconds", "Keep stream alive after event (s)", "number"]],
   webcam: [["device_index", "Device index", "number"]],
   file: [["path", "Video file or image folder"]],
@@ -226,6 +226,7 @@ const SPEAKER_FIELDS = {
 };
 function fieldEl(obj, [key, label, kind, options], rerender) {
   const wrap = document.createElement("label");
+  if (kind === "password") { wrap.innerHTML = label; const i = document.createElement("input"); i.type = "password"; i.value = obj[key] ?? ""; i.oninput = () => { obj[key] = i.value; markDirty(); }; wrap.appendChild(i); return wrap; }
   if (kind === "checkbox") { wrap.className = "check"; wrap.innerHTML = `<input type="checkbox"> ${label}`; const i = $("input", wrap); i.checked = !!obj[key]; i.onchange = () => { obj[key] = i.checked; markDirty(); }; return wrap; }
   wrap.innerHTML = label;
   let input;
@@ -243,6 +244,20 @@ function renderCameraCards() {
     card.appendChild(head);
     const rows = [CAMERA_FIELDS.common, CAMERA_FIELDS[cam.type] || [], CAMERA_FIELDS.analysis];
     rows.forEach((fs) => { const r = document.createElement("div"); r.className = "row"; fs.forEach((f) => r.appendChild(fieldEl(cam, f, renderCameraCards))); card.appendChild(r); });
+    if (cam.type === "rtsp") {
+      const row = document.createElement("div"); row.className = "row";
+      const btn = document.createElement("button"); btn.className = "ghost"; btn.textContent = "Test connection";
+      const out = document.createElement("span"); out.className = "muted small";
+      btn.onclick = async () => {
+        out.textContent = "connecting…"; out.style.color = "";
+        try {
+          const r = await api("/api/test/camera", { method: "POST", body: JSON.stringify({ url: cam.url, username: cam.username || "", password: cam.password || "" }) });
+          if (r.ok) { out.style.color = "var(--ok)"; out.textContent = `OK · ${r.codec} ${r.width}×${r.height} · ${r.measured_fps} fps · first frame ${r.first_frame_ms} ms`; }
+          else { out.style.color = "var(--bad)"; out.textContent = r.error; }
+        } catch (e) { out.style.color = "var(--bad)"; out.textContent = e.message; }
+      };
+      row.appendChild(btn); row.appendChild(out); card.appendChild(row);
+    }
     const sp = document.createElement("div"); sp.className = "checks"; sp.innerHTML = "<span class='muted'>Speakers:</span>";
     config.speakers.forEach((s) => { const l = document.createElement("label"); l.innerHTML = `<input type="checkbox" ${cam.speakers.includes(s.id) ? "checked" : ""}> ${esc(s.name || s.id)}`; $("input", l).onchange = (e) => { cam.speakers = e.target.checked ? [...cam.speakers, s.id] : cam.speakers.filter((x) => x !== s.id); markDirty(); }; sp.appendChild(l); });
     if (!config.speakers.length) sp.innerHTML += "<span class='muted'>none configured</span>";
@@ -265,7 +280,7 @@ function renderSaySpeakers() {
   const box = $("#say-speakers"); box.innerHTML = "";
   config.speakers.forEach((s) => { const l = document.createElement("label"); l.innerHTML = `<input type="checkbox" value="${esc(s.id)}" checked> ${esc(s.name || s.id)}`; box.appendChild(l); });
 }
-$("#add-camera").addEventListener("click", () => { config.cameras.push({ id: "cam" + (config.cameras.length + 1), name: "", type: "rtsp", enabled: true, url: "", device_index: 0, path: "", serial: "", fps: 2, motion_sensitivity: 0.02, event_hold_seconds: 20, analysis_delay_seconds: 3, speakers: [] }); renderCameraCards(); markDirty(); });
+$("#add-camera").addEventListener("click", () => { config.cameras.push({ id: "cam" + (config.cameras.length + 1), name: "", type: "rtsp", enabled: true, url: "", username: "", password: "", device_index: 0, path: "", serial: "", fps: 2, motion_sensitivity: 0.02, event_hold_seconds: 20, analysis_delay_seconds: 3, speakers: [] }); renderCameraCards(); markDirty(); });
 $("#add-speaker").addEventListener("click", () => { config.speakers.push({ id: "spk" + (config.speakers.length + 1), name: "", type: "local_audio", enabled: true, device: "", keep_alive: false, serial: "", url: "", volume: 1 }); renderSpeakerCards(); renderCameraCards(); renderSaySpeakers(); markDirty(); });
 
 $("#check-model").addEventListener("click", async () => {

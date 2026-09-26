@@ -131,3 +131,23 @@ def test_config_roundtrip(tmp_path):
     path = tmp_path / "c.yaml"
     save_config(cfg, path)
     assert load_config(path).prompt.persona == "Test persona"
+
+
+# ---- rtsp url building -------------------------------------------------------------------------
+def test_build_url_encodes_credentials():
+    from screaming_camera.cameras.rtsp import build_url
+    assert build_url("rtsp://192.168.1.5:554/stream2", "cam", "p@ss:word/1") == \
+        "rtsp://cam:p%40ss%3Aword%2F1@192.168.1.5:554/stream2"
+    # credentials already in the URL are left alone
+    assert build_url("rtsp://a:b@1.2.3.4/live0", "cam", "x") == "rtsp://a:b@1.2.3.4/live0"
+    # no credentials configured -> untouched
+    assert build_url("rtsp://1.2.3.4/live0") == "rtsp://1.2.3.4/live0"
+    # bare host gets a scheme
+    assert build_url("1.2.3.4:554/stream1", "u", "p") == "rtsp://u:p@1.2.3.4:554/stream1"
+
+
+def test_explain_error_is_actionable():
+    from screaming_camera.cameras.rtsp import explain_error
+    assert "camera account" in explain_error(Exception("Server returned 401 Unauthorized")).lower()
+    assert "404" in explain_error(Exception("Server returned 404 Not Found"))
+    assert "no response" in explain_error(Exception("Immediate exit requested")).lower()

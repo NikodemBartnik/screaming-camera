@@ -37,6 +37,13 @@ class CodeRequest(BaseModel):
     code: str
 
 
+class CameraTestRequest(BaseModel):
+    url: str = ""
+    username: str = ""
+    password: str = ""
+    camera_id: str = ""  # test a saved camera instead of ad-hoc values
+
+
 def create_app(store: ConfigStore) -> FastAPI:
     engine = Engine(store)
 
@@ -158,6 +165,22 @@ def create_app(store: ConfigStore) -> FastAPI:
     async def test_speak(req: SpeakRequest):
         ok = await engine.play_tone(req.speakers) if req.tone else await engine.speak(req.text, req.speakers)
         return {"ok": ok, "speakers": {s: engine.speakers[s].status for s in req.speakers if s in engine.speakers}}
+
+    @app.post("/api/test/camera")
+    async def test_camera(req: CameraTestRequest):
+        from .cameras.rtsp import build_url, probe
+        url, user, pwd = req.url, req.username, req.password
+        if req.camera_id:
+            cam = engine.cfg.camera(req.camera_id)
+            if cam is None:
+                raise HTTPException(404, "unknown camera")
+            url, user, pwd = cam.url, cam.username, cam.password
+        if not url:
+            raise HTTPException(400, "no URL")
+        result = await asyncio.to_thread(probe, url, user, pwd)
+        # never echo the password back to the browser
+        result["url"] = build_url(url, user, "***" if pwd else "")
+        return result
 
     @app.get("/api/audio/devices")
     async def audio_devices():

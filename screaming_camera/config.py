@@ -43,8 +43,13 @@ class CameraConfig(BaseModel):
     name: str = ""
     type: Literal["rtsp", "eufy_p2p", "webcam", "file"] = "rtsp"
     enabled: bool = True
-    # rtsp
+    # rtsp: paste the URL from the camera's app. Credentials may be in the URL, but putting them in
+    # username/password is safer - they get percent-encoded, so @ : / # in a password still work.
+    # Tapo: create a "camera account" in the Tapo app (Device settings -> Advanced -> Camera account),
+    # then url = rtsp://<ip>:554/stream1 (full res) or /stream2 (720p, enough for the model).
     url: str = ""
+    username: str = ""
+    password: str = ""
     # webcam
     device_index: int = 0
     # file: video file or directory of images (looped) - for tests without hardware
