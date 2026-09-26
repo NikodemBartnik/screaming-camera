@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .config import AppConfig, ConfigStore, PolicyConfig
+from .config import AppConfig, ConfigStore, PolicyConfig, config_warnings
 from .pipeline import Engine
 
 log = logging.getLogger(__name__)
@@ -77,6 +77,10 @@ def create_app(store: ConfigStore) -> FastAPI:
     async def get_state():
         return engine.state()
 
+    @app.get("/api/warnings")
+    async def warnings():
+        return {"warnings": config_warnings(engine.cfg)}
+
     @app.get("/api/config")
     async def get_config():
         return engine.cfg.model_dump(mode="json")
@@ -84,7 +88,7 @@ def create_app(store: ConfigStore) -> FastAPI:
     @app.put("/api/config")
     async def put_config(cfg: AppConfig):
         await engine.apply_config(cfg)
-        return {"ok": True, "version": store.version}
+        return {"ok": True, "version": store.version, "warnings": config_warnings(cfg)}
 
     @app.post("/api/arm")
     async def arm(req: ArmRequest):
@@ -163,8 +167,12 @@ def create_app(store: ConfigStore) -> FastAPI:
 
     @app.post("/api/test/speak")
     async def test_speak(req: SpeakRequest):
+        unknown = [s for s in req.speakers if s not in engine.speakers]
         ok = await engine.play_tone(req.speakers) if req.tone else await engine.speak(req.text, req.speakers)
-        return {"ok": ok, "speakers": {s: engine.speakers[s].status for s in req.speakers if s in engine.speakers}}
+        return {"ok": ok,
+                "speakers": {s: {"status": engine.speakers[s].status, "error": engine.speakers[s].last_error}
+                             for s in req.speakers if s in engine.speakers},
+                "unknown": unknown}
 
     @app.post("/api/test/camera")
     async def test_camera(req: CameraTestRequest):

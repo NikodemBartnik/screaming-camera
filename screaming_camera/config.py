@@ -173,6 +173,37 @@ class AppConfig(BaseModel):
         return next((s for s in self.speakers if s.id == speaker_id), None)
 
 
+def config_warnings(cfg: "AppConfig") -> list[str]:
+    """Things that will silently not work: enabled devices missing required settings."""
+    out: list[str] = []
+    speaker_ids = {s.id for s in cfg.speakers if s.enabled}
+    for s in cfg.speakers:
+        if not s.enabled:
+            continue
+        if s.type == "tapo_talkback":
+            if not s.host:
+                out.append(f"Speaker '{s.name or s.id}': no camera IP address")
+            if not s.password:
+                out.append(f"Speaker '{s.name or s.id}': no TP-Link cloud password - it cannot speak")
+        elif s.type == "eufy_talkback" and not s.serial:
+            out.append(f"Speaker '{s.name or s.id}': no Eufy device serial")
+        elif s.type == "remote_agent" and not s.url:
+            out.append(f"Speaker '{s.name or s.id}': no agent URL")
+    for c in cfg.cameras:
+        if not c.enabled:
+            continue
+        if c.type == "rtsp" and not c.url:
+            out.append(f"Camera '{c.name or c.id}': no RTSP URL")
+        if c.type == "eufy_p2p" and not c.serial:
+            out.append(f"Camera '{c.name or c.id}': no Eufy device serial")
+        missing = [s for s in c.speakers if s not in speaker_ids]
+        if missing:
+            out.append(f"Camera '{c.name or c.id}': speaker(s) {', '.join(missing)} are disabled or gone")
+        if not c.speakers:
+            out.append(f"Camera '{c.name or c.id}': no speaker assigned - it can never speak")
+    return out
+
+
 DEFAULT_CONFIG_PATH = Path(os.environ.get("SC_CONFIG", "config.yaml"))
 
 

@@ -54,6 +54,17 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
 
 .banner { background: rgba(90,176,255,.12); border: 1px solid rgba(90,176,255,.4); padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; }
 .banner.speaking { background: rgba(255,77,94,.15); border-color: var(--bad); }
+.banner.warn { background: rgba(255,181,71,.12); border-color: rgba(255,181,71,.5); }
+.banner.warn ul { margin: 6px 0 0; padding-left: 20px; }
+.speakers { display: flex; gap: 10px; flex-wrap: wrap; }
+.spk { display: inline-flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+.spk .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.spk.ok .dot { background: var(--ok); }
+.spk.error { border-color: var(--bad); }
+.spk.error .dot { background: var(--bad); }
+.spk .kind { color: var(--muted); font-size: 11px; }
+.spk .err { color: var(--bad); max-width: 46ch; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
 .cam { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }

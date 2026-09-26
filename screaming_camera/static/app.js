@@ -17,9 +17,9 @@ async function api(path, opts = {}) {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.json();
 }
-function toast(msg, bad = false) {
+function toast(msg, bad = false, ms = 3500) {
   const t = $("#toast"); t.textContent = msg; t.className = bad ? "bad" : ""; t.hidden = false;
-  clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), 3500);
+  clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), ms);  // errors stay up longer
 }
 
 /* ---------------- tabs ---------------- */
@@ -45,6 +45,7 @@ function renderState(s) {
   chip("#chip-tts", s.tts.status !== "error", "tts " + (s.tts.engine === "none" ? "off" : s.tts.status), s.tts.engine === "none");
   $("#uptime").textContent = `up ${Math.floor(s.uptime / 60)} min · ${s.cameras.length} cameras · ${s.speakers.length} speakers`;
   renderCameras(s.cameras);
+  renderSpeakers(s.speakers);
   if (config) renderEufyLogin(s.eufy);
   if (s.eufy.enabled && (s.eufy.needs_verify_code || s.eufy.captcha_id)) showBanner("Eufy needs a 2FA code / captcha - go to Settings > Eufy bridge");
   const sel = $("#events-camera");
@@ -132,6 +133,23 @@ async function previewLoop() {
     await sleep(150);
   }
 }
+function renderSpeakers(speakers) {
+  const box = $("#speakers");
+  if (!speakers.length) { box.innerHTML = '<span class="muted">No speakers enabled - add one in Settings.</span>'; return; }
+  box.innerHTML = speakers.map((s) => `<span class="spk ${s.status}"><i class="dot"></i>
+    <b>${esc(s.name)}</b><span class="kind">${SPEAKER_KIND[s.type] || s.type}</span>
+    ${s.error ? `<span class="err">${esc(s.error)}</span>` : ""}</span>`).join("");
+}
+
+async function loadWarnings() {
+  try {
+    const { warnings } = await api("/api/warnings");
+    const el = $("#warnings");
+    el.hidden = !warnings.length;
+    if (warnings.length) el.innerHTML = "⚠ Needs attention:<ul>" + warnings.map((w) => `<li>${esc(w)}</li>`).join("") + "</ul>";
+  } catch { /* ignore */ }
+}
+
 async function camAction(id, act) {
   try {
     if (act === "analyze") { toast("Analysing…"); const ev = await api(`/api/test/analyze?camera_id=${id}`, { method: "POST" }); renderLatest(ev); toast(`Threat ${ev.threat_level}: ${ev.scene}`); }
@@ -144,8 +162,11 @@ async function camAction(id, act) {
       const slow = kinds.has("eufy_talkback") ? " - the Eufy camera has to wake up first, ~5-10 s" : "";
       toast(`${act === "beep" ? "Sending a 2 s beep" : "Synthesizing and sending"} via ${via}${slow}`);
       const r = await api("/api/test/speak", { method: "POST", body: JSON.stringify({ text: "This is a test of the security system. You are on camera.", speakers: cam.speakers, tone: act === "beep" }) });
-      const failed = Object.entries(r.speakers).filter(([, st]) => st !== "ok").map(([n]) => n);
-      toast(r.ok ? "Sent OK on " + Object.keys(r.speakers).join(", ") + (failed.length ? " (failed: " + failed.join(", ") + ")" : "") : "Playback failed: " + JSON.stringify(r.speakers), !r.ok);
+      const bad = Object.entries(r.speakers).filter(([, v]) => v.status !== "ok");
+      const good = Object.entries(r.speakers).filter(([, v]) => v.status === "ok").map(([n]) => n);
+      if (bad.length) toast(bad.map(([n, v]) => `${n}: ${v.error || v.status}`).join(" · "), true, 12000);
+      else toast("Played on " + good.join(", "));
+      loadWarnings();
     }
   } catch (e) { toast(e.message, true); }
 }
@@ -247,7 +268,13 @@ function markDirty() {
   $("#dirty").style.color = dirty ? "var(--warn)" : "";
 }
 $("#save-config").addEventListener("click", async () => {
-  try { const r = await api("/api/config", { method: "PUT", body: JSON.stringify(config) }); savedConfig = JSON.stringify(config); markDirty(); toast("Saved & applied (v" + r.version + ")"); }
+  try {
+    const r = await api("/api/config", { method: "PUT", body: JSON.stringify(config) });
+    savedConfig = JSON.stringify(config); markDirty();
+    loadWarnings();
+    toast(r.warnings && r.warnings.length ? "Saved, but: " + r.warnings.join(" · ") : "Saved & applied (v" + r.version + ")",
+          !!(r.warnings && r.warnings.length), r.warnings && r.warnings.length ? 12000 : 3500);
+  }
   catch (e) { toast("Save failed: " + e.message, true); }
 });
 $("#reload-config").addEventListener("click", loadConfig);
@@ -388,4 +415,5 @@ $("#list-eufy").addEventListener("click", async () => {
   try { const evs = await api("/api/events?limit=1"); if (evs.length) renderLatest(evs[0]); } catch {}
   connectWs();
   previewLoop();
+  loadWarnings();
 })();

@@ -195,3 +195,29 @@ def test_wav_to_pcma_resamples_to_8k():
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm.tobytes())
     alaw = wav_to_pcma(buf.getvalue())
     assert abs(len(alaw) - RATE) < RATE * 0.05  # ~1 s of 8 kHz A-law, one byte per sample
+
+
+def test_config_warnings_catch_silent_misconfiguration():
+    from screaming_camera.config import CameraConfig, SpeakerConfig, config_warnings
+    cfg = AppConfig(
+        speakers=[SpeakerConfig(id="tapo_cam", name="Tapo", type="tapo_talkback", host="1.2.3.4", password=""),
+                  SpeakerConfig(id="off", type="local_audio", enabled=False)],
+        cameras=[CameraConfig(id="a", type="rtsp", url="rtsp://x/y", speakers=["tapo_cam"]),
+                 CameraConfig(id="b", type="rtsp", url="", speakers=["off"]),
+                 CameraConfig(id="c", type="eufy_p2p", serial="T1", speakers=[])],
+    )
+    warnings = " | ".join(config_warnings(cfg))
+    assert "cloud password" in warnings          # enabled Tapo speaker without a password
+    assert "no RTSP URL" in warnings             # camera b
+    assert "disabled or gone" in warnings        # camera b points at a disabled speaker
+    assert "no speaker assigned" in warnings     # camera c
+    assert "Speaker 'off'" not in warnings       # disabled speakers are not nagged about
+
+
+def test_config_warnings_silent_when_complete():
+    from screaming_camera.config import CameraConfig, SpeakerConfig, config_warnings
+    cfg = AppConfig(
+        speakers=[SpeakerConfig(id="bt", type="local_audio")],
+        cameras=[CameraConfig(id="a", type="rtsp", url="rtsp://x/y", speakers=["bt"])],
+    )
+    assert config_warnings(cfg) == []
