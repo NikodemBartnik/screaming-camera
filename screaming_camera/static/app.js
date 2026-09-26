@@ -58,12 +58,15 @@ function renderCameras(cams) {
     let el = $(`.cam[data-id="${c.id}"]`, grid);
     if (!el) {
       el = document.createElement("div"); el.className = "cam"; el.dataset.id = c.id;
-      el.innerHTML = `<div class="view"><img alt="" src="/api/cameras/${c.id}/stream.mjpg" onerror="this.style.display='none'">
-        <span class="badge"></span><span class="busy" hidden>ANALYSING</span></div>
+      el.innerHTML = `<div class="view"><img alt="" title="click for a live stream of this camera">
+        <span class="badge"></span><span class="busy" hidden>ANALYSING</span><span class="live" hidden>LIVE</span></div>
         <div class="meta"><span class="name"></span><span class="type"></span><span class="spacer"></span><span class="fps muted small"></span></div>
         <div class="motion"><i></i></div>
         <div class="actions"><button data-act="analyze">Analyse now</button><button data-act="trigger">Wake / trigger</button><button data-act="say">Test voice</button><button data-act="beep">Beep</button></div>`;
-      el.addEventListener("click", (e) => camAction(c.id, e.target.dataset.act));
+      el.addEventListener("click", (e) => {
+        if (e.target.tagName === "IMG") toggleLive(c.id);
+        else camAction(c.id, e.target.dataset.act);
+      });
       grid.appendChild(el);
     }
     $(".badge", el).textContent = c.status + (c.error ? " · " + c.error.slice(0, 60) : "");
@@ -73,8 +76,58 @@ function renderCameras(cams) {
     $(".type", el).textContent = c.type + (c.type === "eufy_p2p" ? " · event-driven" : " · continuous");
     $(".fps", el).textContent = c.last_frame_age == null ? "no frames" : `${c.frames} frames · ${c.last_frame_age}s ago`;
     $(".motion i", el).style.width = Math.min(100, c.motion * 1000) + "%";
-    const img = $("img", el);
-    if (c.status === "streaming" && img.style.display === "none") { img.style.display = ""; img.src = `/api/cameras/${c.id}/stream.mjpg?${Date.now()}`; }
+    $(".live", el).hidden = liveCam !== c.id;
+  }
+}
+
+/* ---------------- previews ----------------
+   A permanent MJPEG connection per camera exhausts the browser's ~6 connections per origin and the
+   whole panel stops loading. So the grid is refreshed by ONE snapshot request at a time, round-robin;
+   clicking a camera gives that single camera a real MJPEG stream (at most one at a time). */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let liveCam = null;
+const previewUrls = new Map();
+
+function setLive(id, on) {
+  const img = $(`.cam[data-id="${id}"] img`);
+  if (!img) return;
+  if (on) { img.src = `/api/cameras/${id}/stream.mjpg?${Date.now()}`; img.style.display = ""; }
+  else { img.removeAttribute("src"); previewUrls.delete(id); }
+  const badge = $(`.cam[data-id="${id}"] .live`);
+  if (badge) badge.hidden = !on;
+}
+function toggleLive(id) {
+  if (liveCam === id) { setLive(id, false); liveCam = null; toast("Live stream off (snapshots continue)"); return; }
+  if (liveCam) setLive(liveCam, false);
+  liveCam = id;
+  setLive(id, true);
+  toast("Live stream on - click the image again to stop");
+}
+
+async function previewLoop() {
+  for (;;) {
+    const ids = state ? state.cameras.map((c) => c.id) : [];
+    if (document.hidden || !ids.length) { await sleep(500); continue; }
+    for (const id of ids) {
+      if (document.hidden) break;
+      if (id === liveCam) continue;  // that one has its own stream
+      const img = $(`.cam[data-id="${id}"] img`);
+      if (!img) continue;
+      try {
+        const r = await fetch(`/api/cameras/${id}/snapshot.jpg?t=${Date.now()}`, { cache: "no-store" });
+        if (r.ok) {
+          const url = URL.createObjectURL(await r.blob());
+          const old = previewUrls.get(id);
+          img.src = url; img.style.display = "";
+          previewUrls.set(id, url);
+          if (old) setTimeout(() => URL.revokeObjectURL(old), 1000);
+        } else if (!previewUrls.has(id)) {
+          img.style.display = "none";  // no frame yet (camera asleep or failing)
+        }
+      } catch { /* transient - keep the last frame */ }
+      await sleep(60);
+    }
+    await sleep(150);
   }
 }
 async function camAction(id, act) {
@@ -320,4 +373,5 @@ $("#list-eufy").addEventListener("click", async () => {
   try { renderState(await api("/api/state")); } catch (e) { toast("Server unreachable", true); }
   try { const evs = await api("/api/events?limit=1"); if (evs.length) renderLatest(evs[0]); } catch {}
   connectWs();
+  previewLoop();
 })();

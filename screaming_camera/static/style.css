@@ -62,6 +62,8 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
 .cam .badge { position: absolute; top: 10px; left: 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; background: rgba(0,0,0,.6); color: var(--muted); }
 .cam .badge.streaming { color: var(--ok); } .cam .badge.error { color: var(--bad); } .cam .badge.waking, .cam .badge.connecting { color: var(--warn); }
 .cam .busy { position: absolute; top: 10px; right: 10px; font-size: 11px; background: var(--accent); color: #05101d; padding: 4px 9px; border-radius: 999px; font-weight: 700; }
+.cam .live { position: absolute; bottom: 10px; right: 10px; font-size: 11px; letter-spacing: .1em; background: var(--bad); color: #fff; padding: 3px 8px; border-radius: 999px; font-weight: 700; }
+.cam img { cursor: pointer; }
 .cam .meta { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
 .cam .meta .name { font-weight: 600; }
 .cam .meta .type { font-size: 11px; color: var(--muted); }
