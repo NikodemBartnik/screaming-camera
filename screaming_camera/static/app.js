@@ -321,6 +321,8 @@ function renderCameraCards() {
     sp.innerHTML = "<span class='lbl'>Speak through:</span>";
     config.speakers.forEach((s) => {
       const l = document.createElement("label");
+      if (!s.enabled) l.className = "off";
+      l.title = s.enabled ? "" : "This speaker is disabled - tick Enabled on its card to use it";
       l.innerHTML = `<input type="checkbox" ${cam.speakers.includes(s.id) ? "checked" : ""}><span>${esc(s.name || s.id)}</span><span class="type">${SPEAKER_KIND[s.type] || s.type}</span>`;
       $("input", l).onchange = (e) => { cam.speakers = e.target.checked ? [...cam.speakers, s.id] : cam.speakers.filter((x) => x !== s.id); markDirty(); };
       sp.appendChild(l);
