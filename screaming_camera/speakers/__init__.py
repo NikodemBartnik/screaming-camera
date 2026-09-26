@@ -11,6 +11,9 @@ def create_speaker(cfg: SpeakerConfig, eufy_client=None) -> Speaker:
     if cfg.type == "remote_agent":
         from .remote_agent import RemoteAgentSpeaker
         return RemoteAgentSpeaker(cfg)
+    if cfg.type == "tapo_talkback":
+        from .tapo_talkback import TapoTalkbackSpeaker
+        return TapoTalkbackSpeaker(cfg)
     if cfg.type == "eufy_talkback":
         if eufy_client is None:
             raise ValueError(f"speaker {cfg.id}: eufy_talkback requires eufy.enabled=true")

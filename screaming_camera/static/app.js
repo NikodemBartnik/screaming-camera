@@ -4,6 +4,8 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleString([], { hour12: false });
 const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const SPEAKER_KIND = { local_audio: "Bluetooth / local audio", eufy_talkback: "Eufy camera speaker",
+                       tapo_talkback: "Tapo camera speaker", remote_agent: "Wi-Fi agent" };
 
 let state = null;
 let config = null;      // live copy being edited in Settings
@@ -137,7 +139,10 @@ async function camAction(id, act) {
     if (act === "say" || act === "beep") {
       const cam = state.cameras.find((c) => c.id === id);
       if (!cam.speakers.length) return toast("No speakers assigned to this camera", true);
-      toast(act === "beep" ? "Sending a 2 s beep (Eufy: wakes the camera first, ~5-10 s)" : "Synthesizing and sending (Eufy: ~10 s)");
+      const kinds = new Set((state.speakers || []).filter((s) => cam.speakers.includes(s.id)).map((s) => s.type));
+      const via = [...kinds].map((k) => SPEAKER_KIND[k] || k).join(" + ") || "speakers";
+      const slow = kinds.has("eufy_talkback") ? " - the Eufy camera has to wake up first, ~5-10 s" : "";
+      toast(`${act === "beep" ? "Sending a 2 s beep" : "Synthesizing and sending"} via ${via}${slow}`);
       const r = await api("/api/test/speak", { method: "POST", body: JSON.stringify({ text: "This is a test of the security system. You are on camera.", speakers: cam.speakers, tone: act === "beep" }) });
       const failed = Object.entries(r.speakers).filter(([, st]) => st !== "ok").map(([n]) => n);
       toast(r.ok ? "Sent OK on " + Object.keys(r.speakers).join(", ") + (failed.length ? " (failed: " + failed.join(", ") + ")" : "") : "Playback failed: " + JSON.stringify(r.speakers), !r.ok);
@@ -272,9 +277,10 @@ const CAMERA_FIELDS = {
   analysis: [["fps", "Frames/s to gate", "number"], ["motion_sensitivity", "Motion sensitivity (0.005 sensitive – 0.1 lazy)", "number"], ["analysis_delay_seconds", "Wait after trigger before analysing (s)", "number"]],
 };
 const SPEAKER_FIELDS = {
-  common: [["id", "ID"], ["name", "Name"], ["type", "Type", "select", ["local_audio", "eufy_talkback", "remote_agent"]], ["enabled", "Enabled", "checkbox"], ["volume", "Volume (0–1.5)", "number"]],
+  common: [["id", "ID"], ["name", "Name"], ["type", "Type", "select", ["local_audio", "eufy_talkback", "tapo_talkback", "remote_agent"]], ["enabled", "Enabled", "checkbox"], ["volume", "Volume (0–1.5)", "number"]],
   local_audio: [["device", "Output device name contains (empty = default)"], ["keep_alive", "Keep-alive (Bluetooth)", "checkbox"]],
   eufy_talkback: [["serial", "Eufy device serial"], ["channels", "AAC channels (1 mono / 2 stereo)", "number"]],
+  tapo_talkback: [["host", "Camera IP address"], ["password", "TP-Link cloud password (not the camera account)", "password"]],
   remote_agent: [["url", "Agent URL (http://host:8181)"]],
 };
 function fieldEl(obj, [key, label, kind, options], rerender) {
@@ -311,8 +317,14 @@ function renderCameraCards() {
       };
       row.appendChild(btn); row.appendChild(out); card.appendChild(row);
     }
-    const sp = document.createElement("div"); sp.className = "checks"; sp.innerHTML = "<span class='muted'>Speakers:</span>";
-    config.speakers.forEach((s) => { const l = document.createElement("label"); l.innerHTML = `<input type="checkbox" ${cam.speakers.includes(s.id) ? "checked" : ""}> ${esc(s.name || s.id)}`; $("input", l).onchange = (e) => { cam.speakers = e.target.checked ? [...cam.speakers, s.id] : cam.speakers.filter((x) => x !== s.id); markDirty(); }; sp.appendChild(l); });
+    const sp = document.createElement("div"); sp.className = "speaker-pick";
+    sp.innerHTML = "<span class='lbl'>Speak through:</span>";
+    config.speakers.forEach((s) => {
+      const l = document.createElement("label");
+      l.innerHTML = `<input type="checkbox" ${cam.speakers.includes(s.id) ? "checked" : ""}><span>${esc(s.name || s.id)}</span><span class="type">${SPEAKER_KIND[s.type] || s.type}</span>`;
+      $("input", l).onchange = (e) => { cam.speakers = e.target.checked ? [...cam.speakers, s.id] : cam.speakers.filter((x) => x !== s.id); markDirty(); };
+      sp.appendChild(l);
+    });
     if (!config.speakers.length) sp.innerHTML += "<span class='muted'>none configured</span>";
     card.appendChild(sp); box.appendChild(card);
   });

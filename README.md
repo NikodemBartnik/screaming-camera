@@ -49,7 +49,8 @@ Talkback needs the livestream running (the speaker starts it if needed); if the 
 
 | Type | Use for |
 |---|---|
-| `eufy_talkback` | the camera's own speaker (AAC over P2P talkback) |
+| `eufy_talkback` | Eufy camera's own speaker (AAC over P2P talkback) - protocol verified, no audible output yet on eufyCam 3 |
+| `tapo_talkback` | Tapo camera's own speaker (G.711 A-law in MPEG-TS over TP-Link's port 8800). Needs the **cloud account** password, not the RTSP camera account. |
 | `local_audio` | any OS output device: USB, jack, **Bluetooth** (`keep_alive` stops BT speakers from dozing off) |
 | `remote_agent` | `scripts/speaker_agent.py` on a Raspberry Pi / old phone with a speaker = DIY Wi‑Fi speaker |
 

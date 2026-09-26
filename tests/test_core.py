@@ -7,6 +7,7 @@ import wave
 from datetime import datetime
 
 import numpy as np
+import pytest
 
 from screaming_camera.analyzer import Analysis, build_system_prompt, encode_image, parse_analysis
 from screaming_camera.cameras.base import Frame
@@ -151,3 +152,46 @@ def test_explain_error_is_actionable():
     assert "camera account" in explain_error(Exception("Server returned 401 Unauthorized")).lower()
     assert "404" in explain_error(Exception("Server returned 404 Not Found"))
     assert "no response" in explain_error(Exception("Immediate exit requested")).lower()
+
+
+# ---- tapo talkback (protocol built from go2rtc's implementation) --------------------------------
+def test_alaw_matches_reference():
+    """Our vectorised A-law encoder must agree with the stdlib implementation byte for byte."""
+    audioop = pytest.importorskip("audioop")
+    from screaming_camera.speakers.tapo_talkback import linear_to_alaw
+    rng = np.random.default_rng(0)
+    pcm = np.concatenate([rng.integers(-32768, 32767, 5000, dtype=np.int64).astype(np.int16),
+                          np.array([-32768, -1, 0, 1, 32767], dtype=np.int16)])
+    assert linear_to_alaw(pcm) == audioop.lin2alaw(pcm.tobytes(), 2)
+
+
+def test_mpegts_header_and_payload_structure():
+    from screaming_camera.speakers.tapo_talkback import (PCMA_STREAM_TYPE, TS_PACKET, _crc32_mpeg,
+                                                         ts_header, ts_payload)
+    head = ts_header()
+    assert len(head) == 2 * TS_PACKET
+    pat, pmt = head[:TS_PACKET], head[TS_PACKET:]
+    for pkt in (pat, pmt):
+        assert pkt[0] == 0x47 and pkt[1] & 0x40  # sync + payload unit start
+        # 4-byte TS header, then pointer field, then the PSI section itself
+        section_len = ((pkt[6] & 0x0F) << 8) | pkt[7]
+        section = pkt[5:5 + 3 + section_len]      # table id .. CRC inclusive
+        assert _crc32_mpeg(section) == 0, "PSI CRC must verify to zero over section+CRC"
+    assert PCMA_STREAM_TYPE in pmt, "PMT must announce the Tapo A-law stream type"
+
+    body, counter = ts_payload(b"\xd5" * 480, 0, 0)
+    assert len(body) % TS_PACKET == 0 and counter == len(body) // TS_PACKET
+    assert all(body[i] == 0x47 for i in range(0, len(body), TS_PACKET))
+    assert body[1] & 0x40, "first TS packet carries the PES start indicator"
+    assert body[4:8] == b"\x00\x00\x01\xc0", "PES start code + audio stream id"
+
+
+def test_wav_to_pcma_resamples_to_8k():
+    from screaming_camera.speakers.tapo_talkback import RATE, wav_to_pcma
+    rate = 22050
+    pcm = (np.sin(np.arange(rate) / rate * 2 * np.pi * 440) * 12000).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm.tobytes())
+    alaw = wav_to_pcma(buf.getvalue())
+    assert abs(len(alaw) - RATE) < RATE * 0.05  # ~1 s of 8 kHz A-law, one byte per sample

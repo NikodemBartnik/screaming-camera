@@ -69,7 +69,7 @@ class CameraConfig(BaseModel):
 class SpeakerConfig(BaseModel):
     id: str
     name: str = ""
-    type: Literal["local_audio", "eufy_talkback", "remote_agent"] = "local_audio"
+    type: Literal["local_audio", "eufy_talkback", "tapo_talkback", "remote_agent"] = "local_audio"
     enabled: bool = True
     # local_audio: substring of the device name (sounddevice) or empty for default output
     device: str = ""
@@ -77,6 +77,10 @@ class SpeakerConfig(BaseModel):
     # eufy_talkback
     serial: str = ""
     channels: int = 1  # AAC channels for talkback: 1 = mono (most cams), 2 = stereo (some doorbells need it)
+    # tapo_talkback: camera IP + the TP-Link *cloud account* password (the camera verifies a hash of
+    # it locally; the RTSP camera account does not work for two-way audio). Stored in config.yaml.
+    host: str = ""
+    password: str = ""
     # remote_agent: http://host:port of scripts/speaker_agent.py
     url: str = ""
     volume: float = 1.0
