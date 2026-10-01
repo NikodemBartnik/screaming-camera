@@ -237,6 +237,7 @@ function connectWs() {
     }
     if (type === "analyzing") showBanner(data.waiting ? `${data.camera_id}: ${data.trigger} detected, waiting ${data.waiting}s for the scene to develop…` : `Analysing ${data.camera_id} (${data.trigger})…`);
     if (type === "speaking") showBanner(`🔊 Speaking on ${data.speakers.join(", ")}: “${data.text}”`, true);
+    if (type === "speak_failed") { showBanner("⚠ Speaker problem — " + data.errors.join(" · "), true); toast(data.errors.join(" · "), true, 12000); }
     if (type === "config" && data.io_restarted) toast("Config applied, cameras restarted");
   };
   ws.onclose = () => setTimeout(connectWs, 2000);

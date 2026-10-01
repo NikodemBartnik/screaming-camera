@@ -97,8 +97,8 @@ class EufyTalkbackSpeaker(Speaker):
         packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume, self.cfg.channels)
         duration = len(packets) * FRAME_SECONDS
         started_here = False
-        # One P2P session per HomeBase at a time, or starts collide and silently never come up.
-        async with self._lock, self.client.station_lock(self.cfg.serial):
+        # One P2P session per HomeBase at a time: take the station exclusively for the message.
+        async with self._lock, self.client.exclusive_station(self.cfg.serial):
             try:
                 # Talkback only works while the camera's livestream is running.
                 self.client.hold_stream(self.cfg.serial, duration + 30)
@@ -110,7 +110,14 @@ class EufyTalkbackSpeaker(Speaker):
                 loop = asyncio.get_running_loop()
                 t0 = loop.time()
                 for i, frame in enumerate(packets):
-                    await self.client.talkback_audio_data(self.cfg.serial, frame)
+                    try:
+                        await self.client.talkback_audio_data(self.cfg.serial, frame)
+                    except Exception as e:  # noqa: BLE001
+                        if "talkback_not_running" not in str(e):
+                            raise
+                        raise RuntimeError(
+                            f"the station dropped the talkback after {i} of {len(packets)} frames "
+                            "(another camera probably grabbed the HomeBase)") from e
                     delay = t0 + (i + 1) * FRAME_SECONDS - loop.time()
                     if delay > 0:
                         await asyncio.sleep(delay)

@@ -306,11 +306,15 @@ class Engine:
         self.bus.publish("speaking", {"text": label, "speakers": [t.cfg.id for t in targets]})
         results = await asyncio.gather(*(t.play(wav) for t in targets), return_exceptions=True)
         ok = False
+        failures = []
         for t, r in zip(targets, results):
             if isinstance(r, Exception):
                 log.error("speaker %s failed: %s", t.cfg.id, r)
+                failures.append(f"{t.cfg.name or t.cfg.id}: {r}")
             else:
                 ok = True
+        if failures:  # make it visible in the panel, not just in the log
+            self.bus.publish("speak_failed", {"errors": failures, "spoke": ok})
         return ok
 
     async def test_analyze(self, camera_id: str | None, image: np.ndarray | None, act: bool = False) -> dict[str, Any]:

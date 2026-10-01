@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import time
@@ -365,14 +366,46 @@ class EufyWsClient:
                            + (f" ({last_error})" if last_error else "")
                            + " - the HomeBase may be busy with another camera")
 
+    async def is_talkback_ongoing(self, serial: str) -> bool:
+        res = await self.send("device.is_talkback_ongoing", serialNumber=serial)
+        return bool(res.get("talkbackOngoing"))
+
     async def start_talkback(self, serial: str, timeout: float = 10.0) -> None:
-        """Open a talkback session and wait until the station confirms it ("talkback started")."""
+        """Open a talkback session and wait until the station really has one running.
+
+        Never trusts leftover state: a session that ended without a "talkback stopped" event used to
+        make this return immediately, and the first audio frame was then rejected as "not running".
+        """
+        self.talkbacks.discard(serial)
         await self.send("device.start_talkback", serialNumber=serial)
-        for _ in range(int(timeout / 0.1)):
-            if serial in self.talkbacks:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if serial in self.talkbacks or await self.is_talkback_ongoing(serial):
+                self.talkbacks.add(serial)
                 return
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
         raise TimeoutError(f"talkback for {serial} not confirmed by the station within {timeout}s")
+
+    @contextlib.asynccontextmanager
+    async def exclusive_station(self, serial: str):
+        """Hold the HomeBase for one device.
+
+        The station runs a single P2P session: while one camera streams, starting a stream or a
+        talkback on another silently dies. Other cameras' livestreams are stopped for the duration;
+        they come back on their next motion event.
+        """
+        station = self.station_of(serial)
+        async with self.station_lock(serial):
+            others = [s for s in list(self.livestreams)
+                      if s != serial and self.station_of(s) == station]
+            for other in others:
+                log.info("eufy: pausing livestream on %s so %s can use the station", other, serial)
+                await self.stop_livestream(other)
+                self.livestreams.discard(other)
+            if others:
+                await asyncio.sleep(1.2)  # let the station tear the old session down
+            yield
 
     async def talkback_audio_data(self, serial: str, chunk: bytes) -> None:
         # Buffer.from(array) on the Node side; lists are verbose but unambiguous.

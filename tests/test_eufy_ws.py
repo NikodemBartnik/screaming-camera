@@ -22,6 +22,7 @@ class FakeEufyWs:
         self.driver_connected = True
         self.suppress_livestream_event = False
         self.livestreaming = set()
+        self.talkback_ongoing = set()
 
     async def handler(self, ws):
         self.clients.append(ws)
@@ -50,8 +51,14 @@ class FakeEufyWs:
                 result = {"serialNumber": msg["serialNumber"], "livestreaming": msg["serialNumber"] in self.livestreaming}
             elif cmd == "device.start_talkback":
                 result = {}
+                self.talkback_ongoing.add(msg["serialNumber"])
                 await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "talkback started",
                                                                       "serialNumber": msg["serialNumber"]}}))
+            elif cmd == "device.is_talkback_ongoing":
+                result = {"serialNumber": msg["serialNumber"], "talkbackOngoing": msg["serialNumber"] in self.talkback_ongoing}
+            elif cmd == "device.stop_livestream":
+                result = {}
+                self.livestreaming.discard(msg["serialNumber"])
             elif cmd == "driver.set_verify_code":
                 self.driver_connected = True
                 result = {"result": True}
@@ -205,5 +212,35 @@ async def test_station_lock_serialises_per_homebase(server):
         assert client.station_of("T8160TEST") == "T8030TEST"
         assert client.station_lock("T8160TEST") is client.station_lock("T8030TEST")
         assert client.station_lock("other") is not client.station_lock("T8030TEST")
+    finally:
+        await client.stop()
+
+
+async def test_start_talkback_ignores_stale_state(server):
+    """A session that ended without a 'talkback stopped' event must not short-circuit the next one."""
+    client = EufyWsClient(server.url)
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        client.talkbacks.add("T8160TEST")          # leftover from an earlier session
+        server.talkback_ongoing.clear()
+        await client.start_talkback("T8160TEST", timeout=5)
+        assert any(c["command"] == "device.start_talkback" for c in server.commands), \
+            "must actually ask the station, not trust the stale set"
+    finally:
+        await client.stop()
+
+
+async def test_exclusive_station_pauses_other_cameras(server):
+    client = EufyWsClient(server.url)
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        client.livestreams.update({"T8160TEST", "OTHERCAM"})
+        client.devices["OTHERCAM"] = {"serialNumber": "OTHERCAM", "stationSerialNumber": "T8030TEST"}
+        async with client.exclusive_station("T8160TEST"):
+            stops = [c for c in server.commands if c["command"] == "device.stop_livestream"]
+            assert [c["serialNumber"] for c in stops] == ["OTHERCAM"], "only the other camera is paused"
+            assert "OTHERCAM" not in client.livestreams
     finally:
         await client.stop()
