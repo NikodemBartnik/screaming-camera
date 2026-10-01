@@ -143,10 +143,12 @@ class PromptConfig(BaseModel):
         "looks like forcing entry. "
         "A grey / black-and-white frame means night vision: any person in it scores at least 7."
     )
+    # No example sentence here on purpose: small models copy examples literally, so a sample line
+    # ends up describing a grey jacket that is not in the frame.
     message_style: str = (
-        "Say it TO the person, addressing them as \"you\". Mention one thing you can actually see - "
-        "clothing colour, what they carry, what they are doing. Firm, a little witty, one short "
-        "sentence. Example: \"You in the grey jacket by the door - you are on camera.\""
+        "Say it TO the person. Start with \"You\" and name one detail you can actually see in this "
+        "frame - the colour of their clothes, what they are holding, or what they are doing. One short, "
+        "firm, slightly mocking sentence. Never describe the scene in the third person."
     )
     language: str = "English"
     extra_instructions: str = ""
