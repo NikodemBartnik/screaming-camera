@@ -56,6 +56,7 @@ class EufyWsClient:
         self.captcha_image: str | None = None  # data URL / base64 png
         self.connection_error = ""
         self.livestreams: set[str] = set()  # serials with a running livestream (from events)
+        self.starting_streams: set[str] = set()  # start_livestream sent, not yet confirmed
         self.talkbacks: set[str] = set()  # serials with a station-confirmed talkback session
         self.stream_holds: dict[str, float] = {}  # serial -> monotonic deadline; keeps a stream open (talkback)
         # A HomeBase handles one P2P session at a time: starting several at once leaves some stuck,
@@ -202,8 +203,10 @@ class EufyWsClient:
                 self.stations[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
             elif source == "device" and name == "livestream started":
                 self.livestreams.add(str(ev.get("serialNumber")))
+                self.starting_streams.discard(str(ev.get("serialNumber")))
             elif source == "device" and name == "livestream stopped":
                 self.livestreams.discard(str(ev.get("serialNumber")))
+                self.starting_streams.discard(str(ev.get("serialNumber")))
                 self.talkbacks.discard(str(ev.get("serialNumber")))
             elif source == "device" and name == "talkback started":
                 self.talkbacks.add(str(ev.get("serialNumber")))
@@ -308,6 +311,7 @@ class EufyWsClient:
             self._pending.pop(message_id, None)
 
     async def start_livestream(self, serial: str) -> None:
+        self.starting_streams.add(serial)
         await self.send("device.start_livestream", serialNumber=serial)
 
     async def stop_livestream(self, serial: str) -> None:
@@ -397,12 +401,14 @@ class EufyWsClient:
         """
         station = self.station_of(serial)
         async with self.station_lock(serial):
-            others = [s for s in list(self.livestreams)
+            # Include streams that are still starting: one that comes up mid-message kills the session.
+            others = [s for s in list(self.livestreams | self.starting_streams)
                       if s != serial and self.station_of(s) == station]
             for other in others:
                 log.info("eufy: pausing livestream on %s so %s can use the station", other, serial)
                 await self.stop_livestream(other)
                 self.livestreams.discard(other)
+                self.starting_streams.discard(other)
             if others:
                 await asyncio.sleep(1.2)  # let the station tear the old session down
             yield

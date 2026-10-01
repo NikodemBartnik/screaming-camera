@@ -94,6 +94,17 @@ class EufyTalkbackSpeaker(Speaker):
         await self.client.start_talkback(self.cfg.serial)
 
     async def play(self, wav: bytes) -> None:
+        """Say it, retrying once if the station drops the session part-way through."""
+        try:
+            await self._play_once(wav)
+        except Exception as e:  # noqa: BLE001
+            if "dropped the talkback" not in str(e):
+                raise
+            log.warning("talkback %s: %s - retrying once", self.cfg.id, e)
+            await asyncio.sleep(1.5)
+            await self._play_once(wav)
+
+    async def _play_once(self, wav: bytes) -> None:
         packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume, self.cfg.channels)
         duration = len(packets) * FRAME_SECONDS
         started_here = False
