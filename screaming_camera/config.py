@@ -146,9 +146,11 @@ class PromptConfig(BaseModel):
         "door, window or car, climbing in. A covered face at night is at least 8."
     )
     message_style: str = (
-        "Speak directly to the person as if through a loudspeaker. Refer to what they are wearing "
-        "and what they are doing so they know they are being watched. Firm and a little witty. "
-        "One or two short sentences."
+        "Write what the loudspeaker should SAY TO THE PERSON, addressing them as \"you\" - never a "
+        "description of the scene, never a note to the owner, never instructions. Name what they are "
+        "wearing or holding so they know they are being watched. Firm, a little witty, one or two short "
+        "sentences. Example: \"You in the black hood with the hammer - step away from the door, you are "
+        "on camera.\""
     )
     language: str = "English"
     extra_instructions: str = ""
