@@ -136,3 +136,23 @@ async def test_talkback_waits_for_confirmation(server):
         assert "T8160TEST" in client.talkbacks
     finally:
         await client.stop()
+
+
+async def test_guard_mode_uses_set_property(server):
+    """station.set_guard_mode only exists on schema <= 12; schema 21 sets the property instead."""
+    client = EufyWsClient(server.url)
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        await client.set_guard_mode("T8030TEST", "away")
+        cmd = server.commands[-1]
+        assert cmd["command"] == "station.set_property"
+        assert cmd["name"] == "guardMode" and cmd["value"] == 0
+        assert client.guard_mode("T8030TEST") == 0
+        assert client.guard_mode_name(0) == "away"
+        # a property-changed event from the station must update what we think the mode is
+        await server.emit({"source": "station", "event": "property changed", "serialNumber": "T8030TEST",
+                           "name": "guardMode", "value": 1})
+        assert await _wait(lambda: client.guard_mode("T8030TEST") == 1)
+    finally:
+        await client.stop()

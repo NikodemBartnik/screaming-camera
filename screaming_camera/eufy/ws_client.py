@@ -194,6 +194,8 @@ class EufyWsClient:
                 self._spawn(self._on_driver_event(name, ev), f"driver:{name}")
             if source == "device" and name == "property changed" and ev.get("serialNumber") in self.devices:
                 self.devices[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
+            elif source == "station" and name == "property changed" and ev.get("serialNumber") in self.stations:
+                self.stations[ev["serialNumber"]][ev.get("name", "")] = ev.get("value")
             elif source == "device" and name == "livestream started":
                 self.livestreams.add(str(ev.get("serialNumber")))
             elif source == "device" and name == "livestream stopped":
@@ -261,8 +263,19 @@ class EufyWsClient:
         self.captcha_id = self.captcha_image = None
 
     async def set_guard_mode(self, station_serial: str, mode: str | int) -> None:
+        # station.set_guard_mode only exists on API schema <= 12; newer schemas set the property.
         value = GUARD_MODES[mode.lower()] if isinstance(mode, str) else int(mode)
-        await self.send("station.set_guard_mode", serialNumber=station_serial, mode=value)
+        await self.send("station.set_property", serialNumber=station_serial, name="guardMode", value=value)
+        self.stations.setdefault(station_serial, {})["guardMode"] = value
+
+    def guard_mode(self, station_serial: str) -> int | None:
+        props = self.stations.get(station_serial) or {}
+        value = props.get("guardMode", props.get("currentMode"))
+        return int(value) if isinstance(value, (int, float)) else None
+
+    @staticmethod
+    def guard_mode_name(value: int | None) -> str:
+        return next((k for k, v in GUARD_MODES.items() if v == value), str(value))
 
     async def connect_driver(self) -> None:
         await self.send("driver.connect", timeout=30)

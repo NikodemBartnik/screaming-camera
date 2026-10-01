@@ -40,7 +40,11 @@ function renderState(s) {
   arm.textContent = s.armed ? "ARMED" : "DISARMED";
   arm.classList.toggle("on", s.armed);
   chip("#chip-model", s.model.ok, s.model.ok ? "model ok" : "model offline");
-  if (s.eufy.enabled) chip("#chip-eufy", s.eufy.driver_connected, s.eufy.driver_connected ? "eufy ok" : s.eufy.connected ? "eufy: no login" : "eufy offline", s.eufy.connected);
+  if (s.eufy.enabled) {
+    const mode = (s.eufy.stations || []).map((st) => st.guard_mode).join("/");
+    chip("#chip-eufy", s.eufy.driver_connected, s.eufy.driver_connected ? (mode ? "eufy · " + mode : "eufy ok") : s.eufy.connected ? "eufy: no login" : "eufy offline", s.eufy.connected);
+    $("#chip-eufy").title = mode ? `HomeBase security mode: ${mode} (Eufy only pushes motion events in modes where notifications are on)` : "";
+  }
   else chip("#chip-eufy", false, "eufy off", true);
   chip("#chip-tts", s.tts.status !== "error", "tts " + (s.tts.engine === "none" ? "off" : s.tts.status), s.tts.engine === "none");
   $("#uptime").textContent = `up ${Math.floor(s.uptime / 60)} min · ${s.cameras.length} cameras · ${s.speakers.length} speakers`;

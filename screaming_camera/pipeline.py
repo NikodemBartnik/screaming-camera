@@ -13,7 +13,7 @@ import numpy as np
 from .analyzer import Analysis, Analyzer
 from .cameras import CameraSource, Frame, create_source
 from .config import AppConfig, CameraConfig, ConfigStore
-from .eufy.ws_client import EufyWsClient
+from .eufy.ws_client import GUARD_MODES, EufyWsClient
 from .gate import FrameGate
 from .policy import Policy
 from .speakers import Speaker, create_speaker
@@ -206,22 +206,37 @@ class Engine:
         self.bus.publish("config", {"version": self.config_store.version, "io_restarted": io_changed})
         self.bus.publish("state", self.state())
 
-    async def _sync_guard_mode(self, cfg: AppConfig) -> None:
-        """Optionally put every HomeBase into a security mode when arming / disarming."""
-        mode_name = cfg.eufy.guard_mode_on_arm if cfg.policy.armed else cfg.eufy.guard_mode_on_disarm
+    async def _sync_guard_mode(self, cfg: AppConfig | None = None) -> None:
+        """Keep every HomeBase in the configured security mode.
+
+        Eufy only pushes motion events in modes where notifications are enabled (typically Away), so
+        arming the system has to arm the HomeBase too. Enforced continuously, not just on the arm
+        transition: schedule-based arming and changes made in the Eufy app would otherwise drift.
+        """
+        cfg = cfg or self.cfg
+        armed = cfg.policy.armed or (self.policy.is_armed() if cfg is self.cfg else cfg.policy.armed)
+        mode_name = cfg.eufy.guard_mode_on_arm if armed else cfg.eufy.guard_mode_on_disarm
         if not mode_name or not self.eufy or not self.eufy.driver_connected:
             return
+        want = GUARD_MODES.get(mode_name.lower())
         for serial in list(self.eufy.stations):
+            if want is not None and self.eufy.guard_mode(serial) == want:
+                continue  # already in the right mode
             try:
                 await self.eufy.set_guard_mode(serial, mode_name)
-                log.info("eufy station %s -> guard mode %s (%s)", serial, mode_name, "armed" if cfg.policy.armed else "disarmed")
+                log.info("eufy station %s -> guard mode %s (system %s)", serial, mode_name,
+                         "armed" if armed else "disarmed")
             except Exception as e:  # noqa: BLE001
-                log.warning("eufy station %s: set_guard_mode %s failed: %s", serial, mode_name, e)
+                log.warning("eufy station %s: guard mode %s failed: %s", serial, mode_name, e)
 
     async def _housekeeping(self) -> None:
         last_cleanup = 0.0
         while True:
             self.model_health = await self.analyzer.health()
+            try:
+                await self._sync_guard_mode()
+            except Exception:  # noqa: BLE001
+                log.exception("guard mode sync failed")
             if time.time() - last_cleanup > 3600:
                 try:
                     n = await self.events.cleanup()
@@ -338,7 +353,12 @@ class Engine:
                      **(self.eufy.login_state() if self.eufy else
                         {"connected": False, "driver_connected": False, "needs_verify_code": False,
                          "captcha_id": None, "captcha_image": None, "connection_error": "", "error": ""}),
-                     "devices": self.eufy.device_summary() if self.eufy else []},
+                     "devices": self.eufy.device_summary() if self.eufy else [],
+                     "stations": [{"serial": s, "name": (self.eufy.stations.get(s) or {}).get("name", s),
+                                   "guard_mode": self.eufy.guard_mode_name(self.eufy.guard_mode(s))}
+                                  for s in self.eufy.stations] if self.eufy else [],
+                     "guard_mode_on_arm": self.cfg.eufy.guard_mode_on_arm,
+                     "guard_mode_on_disarm": self.cfg.eufy.guard_mode_on_disarm},
             "uptime": int(time.time() - self.started_at),
             "config_version": self.config_store.version,
         }
