@@ -20,6 +20,8 @@ class FakeEufyWs:
         self.commands: list[dict] = []
         self.clients: list = []
         self.driver_connected = True
+        self.suppress_livestream_event = False
+        self.livestreaming = set()
 
     async def handler(self, ws):
         self.clients.append(ws)
@@ -40,8 +42,12 @@ class FakeEufyWs:
                 result = {"serialNumber": msg["serialNumber"], "properties": STATION_PROPS[msg["serialNumber"]]}
             elif cmd == "device.start_livestream":
                 result = {}
-                await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "livestream started",
-                                                                      "serialNumber": msg["serialNumber"]}}))
+                self.livestreaming.add(msg["serialNumber"])
+                if not self.suppress_livestream_event:
+                    await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "livestream started",
+                                                                          "serialNumber": msg["serialNumber"]}}))
+            elif cmd == "device.is_livestreaming":
+                result = {"serialNumber": msg["serialNumber"], "livestreaming": msg["serialNumber"] in self.livestreaming}
             elif cmd == "device.start_talkback":
                 result = {}
                 await ws.send(json.dumps({"type": "event", "event": {"source": "device", "event": "talkback started",
@@ -168,5 +174,36 @@ async def test_alarm_routes_to_station_or_device(server):
         assert server.commands[-1]["seconds"] == 5
         await client.trigger_alarm("T8160TEST", 3)          # known device
         assert server.commands[-1]["command"] == "device.trigger_alarm"
+    finally:
+        await client.stop()
+
+
+async def test_ensure_livestream_polls_instead_of_trusting_events(server):
+    """A device with RTSP enabled may never emit 'livestream started'; polling is the real check."""
+    client = EufyWsClient(server.url)
+    server.suppress_livestream_event = True   # only is_livestreaming reports the truth
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        started = await client.ensure_livestream("T8160TEST", timeout=6)
+        assert started is True
+        assert any(c["command"] == "device.start_livestream" for c in server.commands)
+        # already running -> no second start
+        before = sum(c["command"] == "device.start_livestream" for c in server.commands)
+        assert await client.ensure_livestream("T8160TEST", timeout=6) is False
+        assert sum(c["command"] == "device.start_livestream" for c in server.commands) == before
+    finally:
+        await client.stop()
+
+
+async def test_station_lock_serialises_per_homebase(server):
+    client = EufyWsClient(server.url)
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        # a device and its station share one lock; an unrelated station gets its own
+        assert client.station_of("T8160TEST") == "T8030TEST"
+        assert client.station_lock("T8160TEST") is client.station_lock("T8030TEST")
+        assert client.station_lock("other") is not client.station_lock("T8030TEST")
     finally:
         await client.stop()

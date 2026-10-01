@@ -79,16 +79,31 @@ class EufyTalkbackSpeaker(Speaker):
         self.client = client
         self._lock = asyncio.Lock()
 
+    async def _start_talkback_with_retry(self) -> None:
+        """The station can report the livestream as gone between our check and the command."""
+        try:
+            await self.client.start_talkback(self.cfg.serial)
+            return
+        except Exception as e:  # noqa: BLE001
+            if "livestream_not_running" not in str(e) and "not running" not in str(e).lower():
+                raise
+            log.warning("talkback %s: station lost the livestream, restarting it", self.cfg.id)
+        await self.client.stop_livestream(self.cfg.serial)
+        await asyncio.sleep(1.0)
+        await self.client.ensure_livestream(self.cfg.serial)
+        await self.client.start_talkback(self.cfg.serial)
+
     async def play(self, wav: bytes) -> None:
         packets = await asyncio.to_thread(wav_to_adts, wav, self.cfg.volume, self.cfg.channels)
         duration = len(packets) * FRAME_SECONDS
         started_here = False
-        async with self._lock:
+        # One P2P session per HomeBase at a time, or starts collide and silently never come up.
+        async with self._lock, self.client.station_lock(self.cfg.serial):
             try:
                 # Talkback only works while the camera's livestream is running.
-                self.client.hold_stream(self.cfg.serial, duration + 20)
+                self.client.hold_stream(self.cfg.serial, duration + 30)
                 started_here = await self.client.ensure_livestream(self.cfg.serial)
-                await self.client.start_talkback(self.cfg.serial)  # returns once the station confirmed
+                await self._start_talkback_with_retry()
                 await asyncio.sleep(0.3)
                 # Exactly one ADTS frame per command, paced in real time: eufy-security-client wraps each
                 # write() in a frame header with a 64 ms timestamp step, so bigger chunks break playback.

@@ -57,6 +57,9 @@ class EufyWsClient:
         self.livestreams: set[str] = set()  # serials with a running livestream (from events)
         self.talkbacks: set[str] = set()  # serials with a station-confirmed talkback session
         self.stream_holds: dict[str, float] = {}  # serial -> monotonic deadline; keeps a stream open (talkback)
+        # A HomeBase handles one P2P session at a time: starting several at once leaves some stuck,
+        # so every start/talkback on the same station is serialised through this lock.
+        self._station_locks: dict[str, asyncio.Lock] = {}
         self._ws: websockets.ClientConnection | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)  # key: "device:motion detected"
@@ -316,6 +319,18 @@ class EufyWsClient:
         res = await self.send("device.is_livestreaming", serialNumber=serial)
         return bool(res.get("livestreaming"))
 
+    def station_of(self, serial: str) -> str:
+        """Station serial that owns a device (the device itself if it is a station)."""
+        if serial in self.stations:
+            return serial
+        return (self.devices.get(serial) or {}).get("stationSerialNumber") or serial
+
+    def station_lock(self, serial: str) -> asyncio.Lock:
+        station = self.station_of(serial)
+        if station not in self._station_locks:
+            self._station_locks[station] = asyncio.Lock()
+        return self._station_locks[station]
+
     def hold_stream(self, serial: str, seconds: float) -> None:
         """Ask camera sources not to stop this livestream for a while (e.g. while talkback plays)."""
         self.stream_holds[serial] = max(self.stream_holds.get(serial, 0.0), time.monotonic() + seconds)
@@ -323,17 +338,32 @@ class EufyWsClient:
     def stream_held(self, serial: str) -> bool:
         return self.stream_holds.get(serial, 0.0) > time.monotonic()
 
-    async def ensure_livestream(self, serial: str, timeout: float = 12.0) -> bool:
-        """Start the livestream if needed and wait until it is running. Returns True if we started it."""
-        if serial in self.livestreams or await self.is_livestreaming(serial):
+    async def ensure_livestream(self, serial: str, timeout: float = 20.0, attempts: int = 2) -> bool:
+        """Make sure the P2P livestream is running; return True if we had to start it.
+
+        Polls ``device.is_livestreaming`` rather than waiting for the "livestream started" event:
+        that is the exact condition the station checks before accepting talkback, and the event is
+        unreliable (a device with RTSP enabled may only emit "rtsp livestream started").
+        """
+        if await self.is_livestreaming(serial):
             self.livestreams.add(serial)
             return False
-        await self.start_livestream(serial)
-        for _ in range(int(timeout / 0.25)):
-            await asyncio.sleep(0.25)
-            if serial in self.livestreams:
-                return True
-        raise TimeoutError(f"livestream for {serial} did not start within {timeout}s")
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                await self.start_livestream(serial)
+            except Exception as e:  # noqa: BLE001 - "already streaming" is fine, keep polling
+                last_error = e
+            deadline = asyncio.get_running_loop().time() + timeout / attempts
+            while asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.4)
+                if await self.is_livestreaming(serial):
+                    self.livestreams.add(serial)
+                    return True
+            log.warning("eufy %s: livestream not up after attempt %d/%d", serial, attempt + 1, attempts)
+        raise TimeoutError(f"camera {serial} did not start streaming within {timeout}s"
+                           + (f" ({last_error})" if last_error else "")
+                           + " - the HomeBase may be busy with another camera")
 
     async def start_talkback(self, serial: str, timeout: float = 10.0) -> None:
         """Open a talkback session and wait until the station confirms it ("talkback started")."""

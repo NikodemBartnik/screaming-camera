@@ -124,7 +124,9 @@ class EufyP2PSource(CameraSource):
             self.status = "waking"
             log.info("camera %s: %s -> starting livestream", self.cfg.id, label)
             try:
-                await self.client.start_livestream(self.cfg.serial)
+                # Serialised per HomeBase: simultaneous starts leave cameras stuck in "waking".
+                async with self.client.station_lock(self.cfg.serial):
+                    await self.client.start_livestream(self.cfg.serial)
             except Exception as e:  # noqa: BLE001
                 self.last_error = str(e)
                 self.status = "error"

@@ -62,10 +62,13 @@ CLASSIFY_HINT = (
 
 
 def _context(p: PromptConfig) -> list[str]:
-    return [
+    parts = [
         f"WATCH FOR (suspicious, raise threat_level): {p.watch_for.strip()}",
         f"IGNORE (harmless, keep threat_level low): {p.ignore.strip()}",
     ]
+    if p.scoring.strip():
+        parts.append(f"HOW TO SCORE threat_level: {p.scoring.strip()}")
+    return parts
 
 
 def build_classify_prompt(p: PromptConfig) -> str:
