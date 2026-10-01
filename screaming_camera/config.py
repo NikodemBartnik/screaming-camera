@@ -32,10 +32,12 @@ class ModelConfig(BaseModel):
     max_tokens: int = 400
     timeout_seconds: float = 120.0
     frames_per_request: int = 1  # >1 sends the last N gate-selected frames (motion context)
-    # Generation speed (~13 tok/s on the IQ-9075 NPU) dominates latency, not image size. Two-stage mode
-    # asks for a 15-token verdict first (~1.5 s) and only writes the full description + message when the
-    # threat level reaches describe_min_threat (~4-5 s more).
-    two_stage: bool = True
+    # Generation speed (~14 tok/s on the IQ-9075 NPU) dominates latency, not image size. Two-stage mode
+    # asks for a 15-token verdict first (~1.6 s) and only describes when the threat reaches
+    # describe_min_threat. It only pays with a *high* threshold: measured on real frames with
+    # threshold 5 the single call is both faster (3.6 s vs 4.6 s mean) and more sensitive, because the
+    # cheap first pass is conservative and gates messages it should not.
+    two_stage: bool = False
     # Keep this equal to policy.threat_threshold: describing a scene the system will not speak about
     # costs a few seconds for nothing.
     describe_min_threat: int = 6
