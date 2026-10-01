@@ -27,7 +27,8 @@ class ModelConfig(BaseModel):
     extra_body: dict = Field(default_factory=lambda: {"reasoning_effort": "none"})
     max_image_side: int = 768
     jpeg_quality: int = 85
-    temperature: float = 0.4
+    temperature: float = 0.4          # stage 2: some variety in the spoken line
+    classify_temperature: float = 0.1  # stage 1: the verdict should be repeatable, not creative
     max_tokens: int = 400
     timeout_seconds: float = 120.0
     frames_per_request: int = 1  # >1 sends the last N gate-selected frames (motion context)

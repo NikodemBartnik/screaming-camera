@@ -191,9 +191,10 @@ class Analyzer:
             return {"ok": False, "error": str(e)}
 
     def _request(self, images: list[np.ndarray], user_text: str, system: str,
-                 max_tokens: int | None = None) -> tuple[str, dict[str, Any]]:
+                 max_tokens: int | None = None, temperature: float | None = None) -> tuple[str, dict[str, Any]]:
         """(url, json payload) for the configured API flavour."""
         max_tokens = max_tokens or self.model.max_tokens
+        temperature = self.model.temperature if temperature is None else temperature
         encoded = [encode_image(img, self.model.max_image_side, self.model.jpeg_quality) for img in images]
         if self.model.api == "ollama":
             payload = {
@@ -204,7 +205,7 @@ class Analyzer:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_text, "images": [e.split(",", 1)[1] for e in encoded]},
                 ],
-                "options": {"temperature": self.model.temperature, "num_predict": max_tokens},
+                "options": {"temperature": temperature, "num_predict": max_tokens},
             }
             return f"{self._base}/api/chat", payload
         content: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": e}} for e in encoded]
@@ -212,15 +213,16 @@ class Analyzer:
         payload = {
             "model": self.model.name,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
-            "temperature": self.model.temperature,
+            "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
             **(self.model.extra_body or {}),
         }
         return f"{self._base}/chat/completions", payload
 
-    async def _call(self, images: list[np.ndarray], user_text: str, system: str, max_tokens: int | None) -> Analysis:
-        url, payload = self._request(images, user_text, system, max_tokens)
+    async def _call(self, images: list[np.ndarray], user_text: str, system: str, max_tokens: int | None,
+                    temperature: float | None = None) -> Analysis:
+        url, payload = self._request(images, user_text, system, max_tokens, temperature)
         t0 = time.perf_counter()
         try:
             r = await self.client.post(url, headers=self._headers(), json=payload)
@@ -255,7 +257,8 @@ class Analyzer:
             return await self._call(images, user_text, build_system_prompt(self.prompt), None)
 
         # Stage 1: verdict only (~15 tokens). Stage 2 only when it is worth 4-5 s of generation.
-        first = await self._call(images, user_text, build_classify_prompt(self.prompt), 40)
+        first = await self._call(images, user_text, build_classify_prompt(self.prompt), 40,
+                                 self.model.classify_temperature)
         if first.error or first.threat_level < self.model.describe_min_threat:
             first.stage = 1
             return first
