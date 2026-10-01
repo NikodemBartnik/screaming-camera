@@ -262,6 +262,17 @@ class EufyWsClient:
         await self.send("driver.set_captcha", captchaId=self.captcha_id, captcha=code.strip())
         self.captcha_id = self.captcha_image = None
 
+    async def trigger_alarm(self, serial: str, seconds: int) -> None:
+        """Sound the HomeBase/camera siren. Works on devices whose speaker talkback is unsupported."""
+        if serial in self.stations:
+            await self.send("station.trigger_alarm", serialNumber=serial, seconds=int(seconds))
+        else:
+            await self.send("device.trigger_alarm", serialNumber=serial, seconds=int(seconds))
+
+    async def reset_alarm(self, serial: str) -> None:
+        command = "station.reset_alarm" if serial in self.stations else "device.reset_alarm"
+        await self.send(command, serialNumber=serial)
+
     async def set_guard_mode(self, station_serial: str, mode: str | int) -> None:
         # station.set_guard_mode only exists on API schema <= 12; newer schemas set the property.
         value = GUARD_MODES[mode.lower()] if isinstance(mode, str) else int(mode)

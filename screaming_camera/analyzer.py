@@ -46,12 +46,13 @@ class Analysis(BaseModel):
 # model is told to minify: no pretty-printing, no prose, no reasoning field.
 # "message" comes right after the verdict: it is the field that matters and the model commits to it
 # before spending tokens on descriptions.
+# Stage 2 omits "scene" (stage 1 already produced it) and "carrying" - every output token costs
+# ~71 ms on the board's NPU, so the schema is kept to what actually gets used.
 SCHEMA_HINT = (
     'Respond with ONLY a minified JSON object on one line, no markdown, no spaces or newlines, exactly: '
     '{"threat_level":<integer 0-10, 0 = harmless, 10 = crime in progress>,'
-    '"message":"<if threat_level>=5: what to say through the loudspeaker to the person, else empty string>",'
-    '"people":[{"clothing":"<colours and garments>","action":"<what they do>","carrying":"<object or empty>"}],'
-    '"scene":"<max 8 words>"}'
+    '"message":"<what to say through the loudspeaker to the person>",'
+    '"people":[{"clothing":"<colours and garments>","action":"<what they do>"}]}'
 )
 
 CLASSIFY_HINT = (

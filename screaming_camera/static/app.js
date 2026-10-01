@@ -5,7 +5,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleString([], { hour12: false });
 const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const SPEAKER_KIND = { local_audio: "Bluetooth / local audio", eufy_talkback: "Eufy camera speaker",
-                       tapo_talkback: "Tapo camera speaker", remote_agent: "Wi-Fi agent" };
+                       tapo_talkback: "Tapo camera speaker", eufy_alarm: "Eufy siren", remote_agent: "Wi-Fi agent" };
 
 let state = null;
 let config = null;      // live copy being edited in Settings
@@ -308,10 +308,11 @@ const CAMERA_FIELDS = {
   analysis: [["fps", "Frames/s to gate", "number"], ["motion_sensitivity", "Motion sensitivity (0.005 sensitive – 0.1 lazy)", "number"], ["analysis_delay_seconds", "Wait after trigger before analysing (s)", "number"]],
 };
 const SPEAKER_FIELDS = {
-  common: [["id", "ID"], ["name", "Name"], ["type", "Type", "select", ["local_audio", "eufy_talkback", "tapo_talkback", "remote_agent"]], ["enabled", "Enabled", "checkbox"], ["volume", "Volume (0–1.5)", "number"]],
+  common: [["id", "ID"], ["name", "Name"], ["type", "Type", "select", ["local_audio", "eufy_talkback", "tapo_talkback", "eufy_alarm", "remote_agent"]], ["enabled", "Enabled", "checkbox"], ["volume", "Volume (0–1.5)", "number"]],
   local_audio: [["device", "Output device name contains (empty = default)"], ["keep_alive", "Keep-alive (Bluetooth)", "checkbox"]],
   eufy_talkback: [["serial", "Eufy device serial"], ["channels", "AAC channels (1 mono / 2 stereo)", "number"]],
   tapo_talkback: [["host", "Camera IP address"], ["password", "TP-Link cloud password (not the camera account)", "password"]],
+  eufy_alarm: [["serial", "HomeBase or camera serial"], ["alarm_seconds", "Siren duration (s)", "number"]],
   remote_agent: [["url", "Agent URL (http://host:8181)"]],
 };
 function fieldEl(obj, [key, label, kind, options], rerender) {

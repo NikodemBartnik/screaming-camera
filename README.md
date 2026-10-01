@@ -49,7 +49,8 @@ Talkback needs the livestream running (the speaker starts it if needed); if the 
 
 | Type | Use for |
 |---|---|
-| `eufy_talkback` | Eufy camera's own speaker (AAC over P2P talkback) - protocol verified, no audible output yet on eufyCam 3 |
+| `eufy_talkback` | Eufy camera's own speaker. **Does not work on eufyCam 3 / T8160**: eufy-security-client's `Station.startTalkback` has no command branch for that family, so it opens a local audio stream and the camera never opens its speaker (session looks healthy, nothing audible). Works on the models it does cover. |
+| `eufy_alarm` | Eufy siren (HomeBase or camera) for a configurable number of seconds - the usable alternative when talkback is unsupported; pair it with a speaker that can actually talk. |
 | `tapo_talkback` | Tapo camera's own speaker (G.711 A-law in MPEG-TS over TP-Link's port 8800). Needs the **cloud account** password, not the RTSP camera account. |
 | `local_audio` | any OS output device: USB, jack, **Bluetooth** (`keep_alive` stops BT speakers from dozing off) |
 | `remote_agent` | `scripts/speaker_agent.py` on a Raspberry Pi / old phone with a speaker = DIY Wi‑Fi speaker |

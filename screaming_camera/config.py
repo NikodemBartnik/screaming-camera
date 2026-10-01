@@ -35,7 +35,9 @@ class ModelConfig(BaseModel):
     # asks for a 15-token verdict first (~1.5 s) and only writes the full description + message when the
     # threat level reaches describe_min_threat (~4-5 s more).
     two_stage: bool = True
-    describe_min_threat: int = 5
+    # Keep this equal to policy.threat_threshold: describing a scene the system will not speak about
+    # costs a few seconds for nothing.
+    describe_min_threat: int = 6
 
 
 class CameraConfig(BaseModel):
@@ -69,7 +71,7 @@ class CameraConfig(BaseModel):
 class SpeakerConfig(BaseModel):
     id: str
     name: str = ""
-    type: Literal["local_audio", "eufy_talkback", "tapo_talkback", "remote_agent"] = "local_audio"
+    type: Literal["local_audio", "eufy_talkback", "tapo_talkback", "eufy_alarm", "remote_agent"] = "local_audio"
     enabled: bool = True
     # local_audio: substring of the device name (sounddevice) or empty for default output
     device: str = ""
@@ -77,6 +79,9 @@ class SpeakerConfig(BaseModel):
     # eufy_talkback
     serial: str = ""
     channels: int = 1  # AAC channels for talkback: 1 = mono (most cams), 2 = stereo (some doorbells need it)
+    # eufy_alarm: sound the HomeBase/camera siren instead of speaking (eufyCam 3 cannot do talkback).
+    # serial = the HomeBase or the camera; the siren runs for this many seconds.
+    alarm_seconds: int = 5
     # tapo_talkback: camera IP + the TP-Link *cloud account* password (the camera verifies a hash of
     # it locally; the RTSP camera account does not work for two-way audio). Stored in config.yaml.
     host: str = ""
@@ -133,7 +138,7 @@ class PromptConfig(BaseModel):
     )
     language: str = "English"
     extra_instructions: str = ""
-    max_message_words: int = 25  # each word is ~1.3 tokens at ~13 tok/s on the board
+    max_message_words: int = 18  # ~1.3 tokens per word, ~71 ms per token on the board's NPU
 
 
 class TTSConfig(BaseModel):
@@ -185,8 +190,8 @@ def config_warnings(cfg: "AppConfig") -> list[str]:
                 out.append(f"Speaker '{s.name or s.id}': no camera IP address")
             if not s.password:
                 out.append(f"Speaker '{s.name or s.id}': no TP-Link cloud password - it cannot speak")
-        elif s.type == "eufy_talkback" and not s.serial:
-            out.append(f"Speaker '{s.name or s.id}': no Eufy device serial")
+        elif s.type in ("eufy_talkback", "eufy_alarm") and not s.serial:
+            out.append(f"Speaker '{s.name or s.id}': no Eufy serial")
         elif s.type == "remote_agent" and not s.url:
             out.append(f"Speaker '{s.name or s.id}': no agent URL")
     for c in cfg.cameras:

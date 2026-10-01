@@ -156,3 +156,17 @@ async def test_guard_mode_uses_set_property(server):
         assert await _wait(lambda: client.guard_mode("T8030TEST") == 1)
     finally:
         await client.stop()
+
+
+async def test_alarm_routes_to_station_or_device(server):
+    client = EufyWsClient(server.url)
+    client.start()
+    try:
+        assert await _wait(lambda: client.driver_connected)
+        await client.trigger_alarm("T8030TEST", 5)          # known station
+        assert server.commands[-1]["command"] == "station.trigger_alarm"
+        assert server.commands[-1]["seconds"] == 5
+        await client.trigger_alarm("T8160TEST", 3)          # known device
+        assert server.commands[-1]["command"] == "device.trigger_alarm"
+    finally:
+        await client.stop()
