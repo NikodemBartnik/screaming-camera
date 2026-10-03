@@ -156,12 +156,13 @@ class PromptConfig(BaseModel):
     message_style: str = (
         "You are the house's AI and you speak out loud to the person. Speak in the first person about "
         "yourself: begin by telling them you can see them - \"I can see you ...\", \"I'm watching you "
-        "...\" - and say what they are doing. Then tell them this is being recorded. Never open with "
+        "...\" - and say what colour clothes they are wearing and what they are doing. Then tell them "
+        "this is being recorded. Never open with "
         "\"You are\". Calm, intelligent and a little unsettling, as if a mind is behind the camera."
     )
     language: str = "English"
     extra_instructions: str = ""
-    max_message_words: int = 25  # ~1.3 tokens per word, ~71 ms per token on the board's NPU
+    max_message_words: int = 35  # ~1.3 tokens per word, ~71 ms per token on the board's NPU
 
 
 class TTSConfig(BaseModel):
