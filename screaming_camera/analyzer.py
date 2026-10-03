@@ -114,22 +114,56 @@ def encode_image(img: np.ndarray, max_side: int, quality: int) -> str:
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
+def _json_candidates(text: str):
+    """Every plausible JSON object in the answer, best guess first.
+
+    The model sometimes emits two objects in a row; a greedy match then spans both and parses as
+    nothing, losing a real verdict. So also offer each balanced {...} block on its own.
+    """
+    m = _JSON_RE.search(text)
+    if m:
+        yield m.group(0)
+    depth = start = 0
+    in_string = escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0:
+                yield text[start:i + 1]
+    yield text
+
+
 def parse_analysis(text: str) -> Analysis:
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE | re.MULTILINE).strip()
-    candidate = cleaned
-    m = _JSON_RE.search(cleaned)
-    if m:
-        candidate = m.group(0)
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
-        # last resort: trailing commas / single quotes
-        fixed = re.sub(r",\s*([}\]])", r"\1", candidate).replace("'", '"')
-        try:
-            data = json.loads(fixed)
-        except json.JSONDecodeError:
-            return Analysis(raw=text, error="model did not return JSON", scene=cleaned[:200])
+    data = None
+    for candidate in _json_candidates(cleaned):
+        for attempt in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate).replace("'", '"')):
+            try:
+                parsed = json.loads(attempt)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict) and ("threat_level" in parsed or "message" in parsed):
+                data = parsed
+                break
+        if data is not None:
+            break
+    if data is None:
+        return Analysis(raw=text, error="model did not return JSON", scene=cleaned[:200])
     if not isinstance(data, dict):
         return Analysis(raw=text, error="JSON is not an object")
     people = []

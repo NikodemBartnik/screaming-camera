@@ -241,3 +241,16 @@ def test_message_never_contains_raw_json():
 def test_face_hidden_key_is_tolerated():
     a = parse_analysis('{"face_hidden":true,"threat_level":9,"message":"you are hiding your face","people":[]}')
     assert a.threat_level == 9 and a.message == "you are hiding your face"
+
+
+def test_two_json_objects_in_one_answer():
+    """The model sometimes answers twice; a greedy match spans both and loses a real verdict."""
+    doubled = ('{"face_hidden":false,"threat_level":7,"message":"I can see you at the door","people":[]}'
+               '{"face_hidden":false,"threat_level":4,"message":"I can see you","people":[]}')
+    a = parse_analysis(doubled)
+    assert a.threat_level == 7 and a.message == "I can see you at the door" and not a.error
+
+
+def test_json_after_prose_still_parses():
+    a = parse_analysis('Here is the result:\n{"threat_level":6,"message":"I can see you","people":[]}\nDone.')
+    assert a.threat_level == 6 and not a.error
