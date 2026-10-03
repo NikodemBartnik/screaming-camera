@@ -149,12 +149,15 @@ class PromptConfig(BaseModel):
     )
     # No example sentence here on purpose: small models copy examples literally, so a sample line
     # ends up describing a grey jacket that is not in the frame.
+    # First person on purpose: "You are holding a box" reads as a caption, "I can see you holding a
+    # box" reads as a presence. Measured on real frames: 5/6 first-person openings and 4/6 mentions of
+    # recording, versus 0/6 openings with the second-person wording. Resist adding more rules here -
+    # a longer style instruction makes this model collapse to a bare "I'm watching you".
     message_style: str = (
-        "You are the house's AI and you speak TO the person through the loudspeaker. Address them as "
-        "\"you\", never \"a person\" or \"they\". Say what you can see them doing right now, then let them "
-        "know you are watching, recording and understand what is happening. Calm and intelligent, a "
-        "little unsettling - never a barked order. Always write a message whatever the scene: the "
-        "threat level, not you, decides whether it is played."
+        "You are the house's AI and you speak out loud to the person. Speak in the first person about "
+        "yourself: begin by telling them you can see them - \"I can see you ...\", \"I'm watching you "
+        "...\" - and say what they are doing. Then tell them this is being recorded. Never open with "
+        "\"You are\". Calm, intelligent and a little unsettling, as if a mind is behind the camera."
     )
     language: str = "English"
     extra_instructions: str = ""
