@@ -157,8 +157,14 @@ class EufyP2PSource(CameraSource):
     def _on_video(self, ev: dict[str, Any]) -> None:
         if ev.get("serialNumber") != self.cfg.serial:
             return
-        if self._reader is None:  # data before "started" event - create on the fly
-            self._on_started(ev)
+        if self._reader is None:
+            # Some cameras keep sending video for a while after stop_livestream. Resurrecting the
+            # reader for those strays put us in a 1 Hz loop (create on chunk -> stop on the next tick
+            # -> create again), which kept the camera awake and hogged the HomeBase. Only accept data
+            # when a stream is actually wanted: we are starting one, or the event hold is still open.
+            if not self._starting and time.monotonic() > self._hold_until:
+                return
+            self._on_started(ev)  # data arrived before the "started" event
         meta = ev.get("metadata") or {}
         codec = str(meta.get("videoCodec", "h264")).lower()
         self._codec = CODEC_MAP.get(codec, "h264")
