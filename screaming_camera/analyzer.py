@@ -145,6 +145,11 @@ def parse_analysis(text: str) -> Analysis:
     msg = data.get("message") or ""
     if not isinstance(msg, str):
         msg = str(msg)
+    # A rambling model sometimes nests another JSON object inside "message". Never let that reach the
+    # speaker: dig the real sentence out, and drop it if there isn't one.
+    if msg.lstrip().startswith("{"):
+        inner = re.search(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"', msg)
+        msg = inner.group(1).replace('\\"', '"') if inner else ""
     return Analysis(
         threat_level=max(0, min(10, threat)),
         scene=str(data.get("scene", "")),

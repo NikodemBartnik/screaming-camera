@@ -221,3 +221,23 @@ def test_config_warnings_silent_when_complete():
         cameras=[CameraConfig(id="a", type="rtsp", url="rtsp://x/y", speakers=["bt"])],
     )
     assert config_warnings(cfg) == []
+
+
+def test_message_never_contains_raw_json():
+    """A rambling model can nest JSON inside 'message'; the speaker must never read that aloud."""
+    nested = ('{"face_hidden":true,"threat_level":7,'
+              '"message":"{\\"face_hidden\\":true,\\"threat_level\\":7,\\"message\\":\\"you are at the door\\"}",'
+              '"people":[]}')
+    a = parse_analysis(nested)
+    assert a.threat_level == 7
+    assert a.message == "you are at the door", a.message
+    assert "{" not in a.message
+
+    # unsalvageable nesting -> silence rather than gibberish
+    b = parse_analysis('{"threat_level":8,"message":"{\\"oops\\":1}","people":[]}')
+    assert b.message == ""
+
+
+def test_face_hidden_key_is_tolerated():
+    a = parse_analysis('{"face_hidden":true,"threat_level":9,"message":"you are hiding your face","people":[]}')
+    assert a.threat_level == 9 and a.message == "you are hiding your face"
