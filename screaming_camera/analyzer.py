@@ -48,10 +48,15 @@ class Analysis(BaseModel):
 # before spending tokens on descriptions.
 # Stage 2 omits "scene" (stage 1 already produced it) and "carrying" - every output token costs
 # ~71 ms on the board's NPU, so the schema is kept to what actually gets used.
+# face_hidden comes first on purpose: answering that question *before* committing to a score measurably
+# improves the score (it stops the model pattern-matching "person near door -> 7"). The parser ignores
+# the extra key. "people" stays as a place to put descriptions - without it the model dumps scene
+# descriptions into "message" instead of speaking to the person.
 SCHEMA_HINT = (
     'Respond with ONLY a minified JSON object on one line, no markdown, no spaces or newlines, exactly: '
-    '{"threat_level":<integer 0-10, 0 = harmless, 10 = crime in progress>,'
-    '"message":"<what to say through the loudspeaker to the person>",'
+    '{"face_hidden":<true or false>,'
+    '"threat_level":<integer 0-10, 0 = harmless, 10 = crime in progress>,'
+    '"message":"<what the loudspeaker says out loud>",'
     '"people":[{"clothing":"<colours and garments>","action":"<what they do>"}]}'
 )
 
