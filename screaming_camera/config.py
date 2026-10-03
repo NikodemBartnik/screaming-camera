@@ -29,7 +29,7 @@ class ModelConfig(BaseModel):
     jpeg_quality: int = 85
     temperature: float = 0.4          # stage 2: some variety in the spoken line
     classify_temperature: float = 0.1  # stage 1: the verdict should be repeatable, not creative
-    max_tokens: int = 400
+    max_tokens: int = 120  # caps the worst case: one rambling answer cost 30 s at 400
     timeout_seconds: float = 120.0
     frames_per_request: int = 1  # >1 sends the last N gate-selected frames (motion context)
     # Generation speed (~14 tok/s on the IQ-9075 NPU) dominates latency, not image size. Two-stage mode
@@ -137,24 +137,28 @@ class PromptConfig(BaseModel):
     )
     # An explicit rubric matters more than adjectives: small models anchor on the examples.
     scoring: str = (
-        "0-2 no person visible. "
-        "3-4 a person in daylight, face visible, hands empty, simply passing by. "
-        "5-7 a person lingering, looking at or walking toward the camera, holding something, or close "
-        "to a door, window or car. "
-        "8-10 face covered or hidden, touching the camera or a door, window or car, or anything that "
-        "looks like forcing entry. "
-        "A grey / black-and-white frame means night vision: any person in it scores at least 7."
+        "Judge how much the person is hiding themselves or doing something they should not. "
+        "0-2 nobody there. "
+        "3-4 someone acting openly and ordinarily, face plainly visible, passing through or delivering "
+        "something. "
+        "5-6 someone you cannot account for: lingering, watching the camera, or there at night. "
+        "7-8 face deliberately hidden or turned away, or carrying something that could break or force "
+        "its way in. "
+        "9-10 face hidden while moving around the property, a weapon, or any sign of forcing entry. "
+        "In a grey night-vision frame add two."
     )
     # No example sentence here on purpose: small models copy examples literally, so a sample line
     # ends up describing a grey jacket that is not in the frame.
     message_style: str = (
-        "Say it TO the person. Start with \"You\" and name one detail you can actually see in this "
-        "frame - the colour of their clothes, what they are holding, or what they are doing. One short, "
-        "firm, slightly mocking sentence. Never describe the scene in the third person."
+        "You are the house's AI and you speak TO the person through the loudspeaker. Address them as "
+        "\"you\", never \"a person\" or \"they\". Say what you can see them doing right now, then let them "
+        "know you are watching, recording and understand what is happening. Calm and intelligent, a "
+        "little unsettling - never a barked order. Always write a message whatever the scene: the "
+        "threat level, not you, decides whether it is played."
     )
     language: str = "English"
     extra_instructions: str = ""
-    max_message_words: int = 18  # ~1.3 tokens per word, ~71 ms per token on the board's NPU
+    max_message_words: int = 25  # ~1.3 tokens per word, ~71 ms per token on the board's NPU
 
 
 class TTSConfig(BaseModel):
